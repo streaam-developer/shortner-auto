@@ -153,13 +153,11 @@ class AutomationBot:
         await page.wait_for_load_state("networkidle")
         self.logger.info(f"✅ Arrived at post page: {page.url}")
         
-    async def run_automation_flow(self):
+    async def run_automation_flow(self, playwright: async_playwright):
         """Main automation logic loop."""
-        p = await async_playwright().start()
-        
         user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         ]
         
         launch_args = {
@@ -175,7 +173,7 @@ class AutomationBot:
             "proxy": self.proxy
         }
 
-        self.browser = await p.chromium.launch(**launch_args)
+        self.browser = await playwright.chromium.launch(**launch_args)
         self.context = await self.browser.new_context(
             user_agent=random.choice(user_agents),
             viewport={'width': 1280, 'height': 720},
@@ -191,11 +189,18 @@ class AutomationBot:
 
             await self._open_random_download_post(self.page)
             
-            # Main loop
-            for _ in range(10): # Limit loops to prevent infinite runs
+            max_iterations = 15
+            stuck_iterations = 0
+
+            for i in range(max_iterations):
+                if self.page.is_closed():
+                    self.logger.warning("Page was closed unexpectedly.")
+                    break
+
                 if self.page.url != self.current_url:
                     self.current_url = self.page.url
                     self._reset_page_state()
+                    stuck_iterations = 0
                     self.logger.info(f"🌍 Page loaded: {self.current_url}")
                     
                     if "webdb.store" in self.current_url:
@@ -205,62 +210,75 @@ class AutomationBot:
                 await self._human_like_scroll(self.page)
                 await self._human_like_delay(1000, 2000)
                 
-                # Sequentially try to click buttons based on state
-                if not self.page_state["dwd_clicked"]:
-                    self.page = await self._click_element_human_like(
-                        self.page, 
-                        "button:text-matches('download', 'i')"
-                    )
-                    self.page_state["dwd_clicked"] = True
-                    continue
-
-                if not self.page_state["verify_clicked"]:
-                    self.page = await self._click_element_human_like(
-                        self.page, 
-                        "button:text-matches('verify', 'i')"
-                    )
-                    self.page_state["verify_clicked"] = True
-                    continue
-
-                if not self.page_state["continue_clicked"]:
-                    self.page = await self._click_element_human_like(
-                        self.page,
-                        "button:text-matches('continue', 'i')"
-                    )
-                    self.page_state["continue_clicked"] = True
-                    continue
+                action_taken = False
                 
-                if not self.page_state["getlink_clicked"]:
-                    self.page = await self._click_element_human_like(
-                        self.page,
-                        "a.get-link"
-                    )
-                    self.page_state["getlink_clicked"] = True
-                    self.logger.info(f"✅ Final link page reached: {self.page.url}")
-                    break # End of this flow
-            
-            self.logger.info("✅ Automation flow completed.")
+                try:
+                    dwd_button = self.page.locator("button:text-matches('download', 'i')").first
+                    verify_button = self.page.locator("button:text-matches('verify', 'i')").first
+                    continue_button = self.page.locator("button:text-matches('continue', 'i')").first
+                    getlink_button = self.page.locator("a.get-link").first
+
+                    if not self.page_state["dwd_clicked"] and await dwd_button.is_visible():
+                        self.page = await self._click_element_human_like(self.page, "button:text-matches('download', 'i')")
+                        self.page_state["dwd_clicked"] = True
+                        action_taken = True
+                    
+                    elif not self.page_state["verify_clicked"] and await verify_button.is_visible():
+                        self.page = await self._click_element_human_like(self.page, "button:text-matches('verify', 'i')")
+                        self.page_state["verify_clicked"] = True
+                        action_taken = True
+
+                    elif not self.page_state["continue_clicked"] and await continue_button.is_visible():
+                        self.page = await self._click_element_human_like(self.page, "button:text-matches('continue', 'i')")
+                        self.page_state["continue_clicked"] = True
+                        action_taken = True
+                    
+                    elif not self.page_state["getlink_clicked"] and await getlink_button.is_visible():
+                        self.page = await self._click_element_human_like(self.page, "a.get-link")
+                        self.page_state["getlink_clicked"] = True
+                        action_taken = True
+                        self.logger.info(f"✅ Final link page reached: {self.page.url}")
+                        break
+
+                except Exception as e:
+                    self.logger.debug(f"Could not find or click an element on this iteration: {e}")
+
+                if not action_taken:
+                    stuck_iterations += 1
+                    self.logger.info(f"No actionable elements found. Stuck count: {stuck_iterations}")
+                    if stuck_iterations >= 3:
+                        self.logger.warning("Bot is stuck on this page. Ending flow.")
+                        break
+                
+                if i == max_iterations - 1:
+                    self.logger.warning("Max iterations reached without finding the final link.")
+
+            if self.page_state["getlink_clicked"]:
+                self.logger.info("✅ Automation flow completed successfully.")
+            else:
+                self.logger.warning("⚠️ Automation flow finished without reaching the final link.")
 
         except Exception as e:
-            self.logger.error(f"❌ An error occurred: {e}", exc_info=True)
-            await self._take_screenshot(self.page, "error")
+            self.logger.error(f"❌ An error occurred during the automation flow: {e}", exc_info=True)
+            if self.page and not self.page.is_closed():
+                await self._take_screenshot(self.page, "error")
         finally:
             self.logger.info("Browser cleanup.")
             if self.browser:
                 await self.browser.close()
-            await p.stop()
 
 async def main():
     """Initializes and runs all automation bots concurrently."""
-    tasks = []
-    active_proxies = proxies if USE_PROXY else [None] * MAX_CONCURRENT_INSTANCES
+    async with async_playwright() as playwright:
+        tasks = []
+        active_proxies = proxies if USE_PROXY else [None] * MAX_CONCURRENT_INSTANCES
 
-    for i in range(min(MAX_CONCURRENT_INSTANCES, len(active_proxies))):
-        proxy = active_proxies[i] if USE_PROXY else None
-        bot = AutomationBot(bot_id=i+1, proxy=proxy)
-        tasks.append(bot.run_automation_flow())
-    
-    await asyncio.gather(*tasks)
+        for i in range(min(MAX_CONCURRENT_INSTANCES, len(active_proxies))):
+            proxy = active_proxies[i] if USE_PROXY else None
+            bot = AutomationBot(bot_id=i+1, proxy=proxy)
+            tasks.append(bot.run_automation_flow(playwright))
+        
+        await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     try:
