@@ -39,23 +39,24 @@ process.on('SIGINT', () => {
   RUNNING = false;
 });
 
-// ================= CORE LOGIC =================
+// ================= POST PICKER =================
 
 async function pickRandomPost(page) {
   await page.waitForLoadState('domcontentloaded');
-  const links = await page.$$('a[href]');
-  const filtered = [];
 
-  for (const l of links) {
-    const href = await l.getAttribute('href');
-    if (href && href.startsWith('/') && href.length > 5) {
-      filtered.push(l);
-    }
+  // 🔥 EXACT selector based on your HTML
+  const posts = await page.$$('article.post h3.entry-title a');
+
+  if (!posts.length) {
+    throw new Error('No posts found using article.post h3.entry-title a');
   }
 
-  if (!filtered.length) throw new Error('No post links found');
-  return filtered[Math.floor(Math.random() * filtered.length)];
+  log(`Found ${posts.length} posts on page`);
+
+  return posts[Math.floor(Math.random() * posts.length)];
 }
+
+// ================= CORE SESSION =================
 
 async function runSession() {
   const browser = await chromium.launch({ headless: false });
@@ -79,7 +80,7 @@ async function runSession() {
     log('Home opened');
     await randomDelay();
 
-    // 2️⃣ Random post
+    // 2️⃣ Open random post (CLASS-BASED)
     const post = await pickRandomPost(page);
     await post.click();
     await page.waitForLoadState('domcontentloaded');
@@ -100,18 +101,18 @@ async function runSession() {
     await newTab.waitForLoadState('domcontentloaded');
     log('DWD button clicked → new tab opened');
 
-    // 4️⃣ MAIN LOOP (NO TIMEOUT)
+    // 4️⃣ MAIN LOOP (NO TIMEOUT, ONLY webdb.store EXIT)
     while (RUNNING) {
       const url = newTab.url();
 
-      // ❌ Unexpected domain
+      // ❌ unexpected domain
       if (!domainAllowed(url)) {
         log(`Unexpected domain detected: ${url}`);
         await newTab.screenshot({ path: `error-${Date.now()}.png` });
         break;
       }
 
-      // ✅ FINAL EXIT CONDITION
+      // ✅ FINAL EXIT
       if (url.includes('webdb.store')) {
         log('webdb.store reached');
         await sleep(WAIT_AFTER_WEBDB);
@@ -129,7 +130,7 @@ async function runSession() {
         }
       }
 
-      // ✅ Verify button
+      // ✅ Verify
       const verifyBtn = await newTab.$(
         'button.ce-btn.ce-blue:has-text("Verify")'
       );
@@ -140,7 +141,7 @@ async function runSession() {
         continue;
       }
 
-      // ➡ Continue button
+      // ➡ Continue
       const continueBtn = await newTab.$(
         'a#btn7 button.ce-btn.ce-blue:has-text("Continue")'
       );
@@ -151,7 +152,7 @@ async function runSession() {
         continue;
       }
 
-      // ⏳ Nothing found
+      // ⏳ nothing yet
       await sleep(2000);
     }
 
@@ -165,7 +166,7 @@ async function runSession() {
     await browser.close();
     log(`⏹ SESSION ${SESSION_COUNT} CLOSED`);
 
-    // Cooldown every 50 sessions
+    // cooldown
     if (SESSION_COUNT % 50 === 0) {
       log('😴 Cooldown 60s');
       await sleep(60000);
