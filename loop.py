@@ -11,6 +11,7 @@ from playwright_stealth import Stealth
 
 # ================= CONFIGURATION =================
 START_SITE = "https://yomovies.delivery"
+TARGET_URL_PART = "webdb.store"
 MAX_CONCURRENT_INSTANCES = 1
 HEADLESS = False
 SCREENSHOTS_ENABLED = False
@@ -54,15 +55,9 @@ class AutomationBot:
         self.logger = logging.LoggerAdapter(logging.getLogger(), {'bot_id': f'Bot-{self.bot_id}'})
         self.browser = None
         self.context = None
-        self.page = None
-        self.current_url = None
-        self.page_state = {}
-
-    def _reset_page_state(self):
-        self.page_state = { "dwd_clicked": False, "verify_clicked": False, "continue_clicked": False, "getlink_clicked": False }
 
     async def _take_screenshot(self, page: Page, prefix="page"):
-        if not SCREENSHOTS_ENABLED:
+        if not SCREENSHOTS_ENABLED or page.is_closed():
             return
         try:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -72,17 +67,7 @@ class AutomationBot:
         except Exception as e:
             self.logger.error(f"📸 Screenshot failed: {e}")
 
-    async def _human_like_delay(self, min_ms=500, max_ms=1500):
-        await asyncio.sleep(random.uniform(min_ms, max_ms) / 1000)
-
-    async def _human_like_scroll(self, page: Page):
-        for _ in range(random.randint(1, 3)):
-            scroll_amount = random.randint(-150, 300)
-            await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
-            await self._human_like_delay(100, 300)
-    
     async def _configure_network_blocker(self, page: Page):
-        self.logger.info("Configuring network request blocker.")
         block_list_patterns = [
             r"doubleclick\.net", r"googleadservices\.com", r"googlesyndication\.com", r"adservice\.google\.",
             r"pagead2\.googlesyndication\.com", r"tpc\.googlesyndication\.com", r"adnxs\.com", r"adform\.net",
@@ -91,189 +76,147 @@ class AutomationBot:
             r"adsco\.re", r"ad\.gt", r"syndication\.exdynsrv\.com", r"go\.mobisla\.com"
         ]
         compiled_block_list = [re.compile(p) for p in block_list_patterns]
+        await page.route("**/*", lambda route: asyncio.create_task(self._handle_route(route, compiled_block_list)))
 
-        async def handle_route(route):
-            url = route.request.url
-            if any(p.search(url) for p in compiled_block_list):
-                try: await route.abort()
-                except Exception: pass
-            else:
-                try: await route.continue_()
-                except Exception: pass
-        
-        await page.route("**/*", handle_route)
+    async def _handle_route(self, route, compiled_block_list):
+        if any(p.search(route.request.url) for p in compiled_block_list):
+            try: await route.abort()
+            except Exception: pass
+        else:
+            try: await route.continue_()
+            except Exception: pass
 
-    async def _click_element_human_like(self, page_or_frame: [Page, Frame], selector: str, new_page_timeout=10000):
+    async def _open_and_process_link(self, start_page: Page, selector: str) -> bool:
+        """Clicks a selector that should open a new tab and starts the processing loop on it."""
         try:
-            element = page_or_frame.locator(selector).first
-            if not await element.is_visible():
-                return self.page
+            element = start_page.locator(selector).first
+            if not await element.is_visible(timeout=5000):
+                return False
 
-            self.logger.info(f"Interacting with element: {selector}")
-            await element.scroll_into_view_if_needed()
-            await self._human_like_delay(200, 500)
-            
-            # Correctly get the page object for mouse actions, even from a frame
-            action_page = page_or_frame.page if isinstance(page_or_frame, Frame) else page_or_frame
-            bounding_box = await element.bounding_box()
-            if bounding_box:
-                target_x = bounding_box['x'] + bounding_box['width'] * random.uniform(0.3, 0.7)
-                target_y = bounding_box['y'] + bounding_box['height'] * random.uniform(0.3, 0.7)
-                await action_page.mouse.move(target_x, target_y, steps=random.randint(5, 15))
-                await self._human_like_delay(100, 400)
-
-            async with self.context.expect_page(timeout=new_page_timeout) as new_page_info:
-                await element.click()
+            self.logger.info(f"Clicking initial download link: {selector}")
+            async with self.context.expect_page(timeout=15000) as new_page_info:
+                await element.click(force=True)
             
             new_page = await new_page_info.value
-            # No longer need to apply stealth here, context manager handles it
-            await self._configure_network_blocker(new_page)
-            await new_page.wait_for_load_state("domcontentloaded", timeout=30000)
             self.logger.info(f"➡️ New tab opened: {new_page.url}")
-
-            if "readnews18.com" in new_page.url:
-                self.logger.info("Shortener page detected, starting special handling...")
-                new_page = await self._handle_shortener_tab(new_page)
-
-            await self._take_screenshot(new_page, "new_tab")
-            return new_page
-
-        except Exception:
-            await self.page.wait_for_load_state("networkidle", timeout=30000)
-            self.logger.info(f"➡️ Navigated on the same tab to: {self.page.url}")
-            await self._take_screenshot(self.page, "same_tab_nav")
-            return self.page
-
-    async def _handle_shortener_tab(self, page: Page) -> Page:
-        try:
-            self.logger.info("Waiting for 'Verify' button (#btn6) to be attached...")
-            verify_button = page.locator("#btn6")
-            await verify_button.wait_for(state="attached", timeout=20000)
             
-            self.logger.info("Forcefully clicking attached 'Verify' button, ignoring visibility.")
-            await verify_button.click(force=True)
-            await self._human_like_delay(500, 1000)
-
-            self.logger.info("Waiting for 'Continue' button (#btn7) to become visible...")
-            continue_button = page.locator("#btn7")
-            await continue_button.wait_for(state="visible", timeout=20000)
-            
-            self.logger.info("Forcefully clicking 'Continue' button.")
-            async with page.expect_navigation(wait_until="domcontentloaded", timeout=15000):
-                await continue_button.click(force=True)
-            self.logger.info(f"Navigation after Continue click successful. New URL: {page.url}")
+            await self._process_tab_until_target(new_page)
+            return True
         except Exception as e:
-            self.logger.error(f"❌ Error during shortener handling: {e}", exc_info=True)
-            await self._take_screenshot(page, "shortener_error")
-        return page
+            self.logger.error(f"Failed to open and process link: {e}")
+            return False
 
-    async def _open_random_download_post(self, page: Page):
-        self.logger.info("Searching for a random download post...")
-        download_links = await page.locator("a[href*='download']").all()
-        if not download_links:
-            raise RuntimeError("No download posts found on the main page.")
-
-        random_post = random.choice(download_links)
-        href = await random_post.get_attribute('href')
-        self.logger.info(f"🎯 Navigating to random post: {href}")
-        await page.goto(href, wait_until="domcontentloaded")
-        self.logger.info(f"✅ Arrived at post page: {page.url}")
+    async def _process_tab_until_target(self, page: Page):
+        """The main engine. On a given tab, repeatedly clicks selectors until the target URL is found."""
+        self.logger.info(f"🚀 Starting aggressive click loop on: {page.url}")
         
-    async def run_automation_flow(self, playwright: async_playwright):
-        print("Bot starting run_automation_flow...")
-        sys.stdout.flush()
+        # The selectors to try clicking, in order of priority
+        selectors_to_try = ["#btn6", "#btn7", "button:text-matches('continue', 'i')"]
         
-        device = playwright.devices['Pixel 5']
-        launch_args = { "headless": HEADLESS, "proxy": self.proxy }
-
-        self.browser = await playwright.chromium.launch(**launch_args)
-        self.context = await self.browser.new_context(
-            **device,
-            locale="en-US",
-            timezone_id="America/New_York",
-            permissions=["geolocation"],
-            java_script_enabled=True,
-            bypass_csp=True
-        )
-        await self.context.grant_permissions(["geolocation"], origin=START_SITE)
-        
-        self.page = await self.context.new_page()
-        # No longer need to apply stealth here, context manager handles it
-        await self._configure_network_blocker(self.page)
-
-        try:
-            self.logger.info(f"🚀 Starting automation at: {START_SITE}")
-            await self.page.goto(START_SITE, wait_until="domcontentloaded", timeout=60000)
-
-            await self._open_random_download_post(self.page)
+        for i in range(20): # Max 20 attempts to prevent infinite loops
+            if page.is_closed():
+                self.logger.warning("Page was closed during processing loop.")
+                return
             
-            max_iterations, stuck_iterations = 15, 0
-            for i in range(max_iterations):
-                if self.page.is_closed():
-                    self.logger.warning("Page was closed unexpectedly."); break
+            if TARGET_URL_PART in page.url:
+                self.logger.info(f"✅ Target URL reached: {page.url}")
+                await self._take_screenshot(page, "success")
+                # Wait a moment to ensure the page is stable before closing
+                await asyncio.sleep(5)
+                return
 
-                if self.page.url != self.current_url:
-                    self.current_url, stuck_iterations = self.page.url, 0
-                    self._reset_page_state()
-                    self.logger.info(f"🌍 Page loaded: {self.current_url}")
-                    if "webdb.store" in self.current_url:
-                        self.logger.info("🛑 Reached 'webdb.store', stopping this flow."); break
+            self.logger.info(f"Loop {i+1}/20: Searching for selectors on {page.url}")
 
-                await self._human_like_scroll(self.page)
-                await self._human_like_delay(1000, 2000)
-                
-                action_taken = False
-                search_contexts = [self.page] + self.page.frames
-                self.logger.info(f"Searching for actions on page and {len(search_contexts) - 1} iframe(s).")
-
-                for search_context in search_contexts:
+            action_taken = False
+            for selector in selectors_to_try:
+                # Search in the page and all its frames
+                for frame in [page] + page.frames:
+                    if frame.is_closed(): continue
+                    
+                    element = frame.locator(selector).first
                     try:
-                        dwd_selector = "button:text-matches('download', 'i'), a:text-matches('download', 'i')"
-                        verify_selector = "button:text-matches('verify', 'i')"
-                        continue_selector = "button:text-matches('continue', 'i')"
-                        getlink_selector = "a.get-link"
+                        if await element.is_visible(timeout=200):
+                            self.logger.info(f"Found '{selector}', attempting click...")
+                            await element.click(force=True)
+                            await asyncio.sleep(random.uniform(2.5, 4.0)) # Wait for page to react
+                            action_taken = True
+                            break # Exit frame loop
+                    except Exception:
+                        continue # Element not visible or other error
+                if action_taken:
+                    break # Exit selector loop
+            
+            if not action_taken:
+                self.logger.warning("No listed selectors found in this loop iteration. Ending process for this tab.")
+                await self._take_screenshot(page, "no_selectors_found")
+                return
+    
+    async def run(self):
+        """The main entry point for a single bot instance."""
+        print(f"Bot-{self.bot_id} starting...")
+        sys.stdout.flush()
 
-                        if not self.page_state["dwd_clicked"] and await search_context.locator(dwd_selector).first.is_visible(timeout=500):
-                            self.page, self.page_state["dwd_clicked"], action_taken = await self._click_element_human_like(search_context, dwd_selector), True, True
-                        elif not self.page_state["verify_clicked"] and await search_context.locator(verify_selector).first.is_visible(timeout=500):
-                            self.page, self.page_state["verify_clicked"], action_taken = await self._click_element_human_like(search_context, verify_selector), True, True
-                        elif not self.page_state["continue_clicked"] and await search_context.locator(continue_selector).first.is_visible(timeout=500):
-                            self.page, self.page_state["continue_clicked"], action_taken = await self._click_element_human_like(search_context, continue_selector), True, True
-                        elif not self.page_state["getlink_clicked"] and await search_context.locator(getlink_selector).first.is_visible(timeout=500):
-                            self.page, self.page_state["getlink_clicked"], action_taken = await self._click_element_human_like(search_context, getlink_selector), True, True
-                            self.logger.info(f"✅ Final link page reached: {self.page.url}"); break
-                    except Exception: continue
-                    if action_taken: break
+        async with async_playwright() as playwright:
+            async with Stealth().use_async(playwright) as p:
+                try:
+                    device = p.devices['Pixel 5']
+                    self.browser = await p.chromium.launch(headless=HEADLESS, proxy=self.proxy)
+                    self.context = await self.browser.new_context(
+                        **device,
+                        locale="en-US",
+                        timezone_id="America/New_York",
+                        permissions=["geolocation"]
+                    )
+                    await self.context.grant_permissions(["geolocation"], origin=START_SITE)
+                    
+                    page = await self.context.new_page()
+                    await self._configure_network_blocker(page)
 
-                if action_taken: stuck_iterations = 0
-                else:
-                    stuck_iterations += 1
-                    self.logger.info(f"No actionable elements found. Stuck count: {stuck_iterations}")
-                    if stuck_iterations >= 3:
-                        self.logger.warning("Bot is stuck. Ending flow."); await self._take_screenshot(self.page, "stuck"); break
-                
-                if self.page_state["getlink_clicked"]: break
-                if i == max_iterations - 1: self.logger.warning("Max iterations reached.")
+                    self.logger.info(f"Navigating to start site: {START_SITE}")
+                    await page.goto(START_SITE, wait_until="domcontentloaded", timeout=60000)
+                    
+                    self.logger.info("Searching for a random download post to click...")
+                    download_links = await page.locator("a[href*='download']").all()
+                    if not download_links:
+                        raise RuntimeError("No download posts found on the main page.")
+                    
+                    random.shuffle(download_links)
+                    
+                    # Try to click a random link that successfully opens and processes a new tab
+                    success = False
+                    for link in download_links:
+                        href = await link.get_attribute('href')
+                        self.logger.info(f"Attempting to start process with post: {href}")
+                        if await self._open_and_process_link(page, f"a[href='{href}']"):
+                            success = True
+                            break
+                        else:
+                            self.logger.warning(f"Post {href} did not lead to a new tab. Trying another.")
+                    
+                    if success:
+                        self.logger.info("✅ Main processing initiated successfully.")
+                    else:
+                        self.logger.error("❌ Could not find any download link that started the process.")
+                        await self._take_screenshot(page, "initial_link_failure")
 
-            if self.page_state["getlink_clicked"]: self.logger.info("✅ Automation flow completed successfully.")
-            else: self.logger.warning("⚠️ Automation flow finished without reaching the final link.")
-        except Exception as e:
-            self.logger.error(f"❌ An error occurred: {e}", exc_info=True)
-            if self.page and not self.page.is_closed(): await self._take_screenshot(self.page, "error")
-        finally:
-            self.logger.info("Browser cleanup.")
-            if self.browser: await self.browser.close()
+                except Exception as e:
+                    self.logger.error(f"❌ A critical error occurred: {e}", exc_info=True)
+                    if self.context and self.context.pages:
+                        await self._take_screenshot(self.context.pages[-1], "critical_error")
+                finally:
+                    self.logger.info("Browser cleanup.")
+                    if self.browser:
+                        await self.browser.close()
 
 async def main():
     print("Main function started...")
     sys.stdout.flush()
-    async with Stealth().use_async(async_playwright()) as playwright:
-        tasks = []
-        active_proxies = proxies if USE_PROXY else [None] * MAX_CONCURRENT_INSTANCES
-        for i in range(min(MAX_CONCURRENT_INSTANCES, len(active_proxies))):
-            bot = AutomationBot(bot_id=i+1, proxy=active_proxies[i])
-            tasks.append(bot.run_automation_flow(playwright))
-        await asyncio.gather(*tasks)
+    tasks = []
+    active_proxies = proxies if USE_PROXY else [None] * MAX_CONCURRENT_INSTANCES
+    for i in range(min(MAX_CONCURRENT_INSTANCES, len(active_proxies))):
+        bot = AutomationBot(bot_id=i+1, proxy=active_proxies[i])
+        tasks.append(bot.run())
+    await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     print("Script starting...")
