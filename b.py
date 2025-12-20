@@ -4,16 +4,12 @@ import os
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-# =========================
-# CONFIG
-# =========================
+# ================= CONFIG =================
 TARGET_URL = "https://arolinks.com/dZJjx"
 CHECK_INTERVAL = 2000
 HEADLESS = True
 
-# =========================
-# LOGGING
-# =========================
+# ================= LOGGING =================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -24,9 +20,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("AUTO")
 
-# =========================
-# SCREENSHOT
-# =========================
+# ================= SCREENSHOTS =================
 SCREENSHOT_DIR = "screenshots"
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
@@ -37,17 +31,13 @@ async def take_screenshot(page, prefix="continue"):
     print(f"📸 SCREENSHOT SAVED: {path}")
     log.info(f"📸 Screenshot saved: {path}")
 
-# =========================
-# GLOBAL STATE
-# =========================
+# ================= STATE =================
 current_url = None
-continue_clicked = False
-verify_clicked = False
+verify_done = False
+continue_done = False
 
-# =========================
-# REMOVE OVERLAY
-# =========================
-async def remove_consent(page):
+# ================= HELPERS =================
+async def remove_overlay(page):
     try:
         await page.evaluate("""
             () => {
@@ -61,43 +51,40 @@ async def remove_consent(page):
     except:
         pass
 
-# =========================
-# CLICK VERIFY
-# =========================
-async def click_verify(page):
-    global verify_clicked
-    if verify_clicked:
-        return
-
-    btn = await page.query_selector("button#btn6")
-    if not btn:
-        return
-
-    visible = await page.evaluate("""
+async def element_visible(page, el):
+    return await page.evaluate("""
         el => {
+            if (!el) return false;
             const r = el.getBoundingClientRect();
             return r.width > 0 && r.height > 0;
         }
-    """, btn)
+    """, el)
 
-    if not visible:
+# ================= CLICK VERIFY =================
+async def click_verify(page):
+    global verify_done
+    if verify_done:
         return
 
-    verify_clicked = True
+    btn = await page.query_selector("xpath=//button[contains(., 'Verify')]")
+    if not btn:
+        return
+
+    if not await element_visible(page, btn):
+        return
+
+    verify_done = True
     await page.evaluate("el => el.click()", btn)
 
-    print(">>> BUTTON CLICKED: VERIFY")
-    log.info("✅ CLICKED VERIFY")
+    print(">>> VERIFY CLICKED")
+    log.info("✅ VERIFY CLICKED")
 
-# =========================
-# CLICK CONTINUE (FIXED)
-# =========================
+# ================= CLICK CONTINUE =================
 async def click_continue(page, context):
-    global continue_clicked
-    if continue_clicked:
+    global continue_done
+    if continue_done:
         return page
 
-    # 🔥 STRICT TEXT MATCH (case-insensitive)
     btn = await page.query_selector("""
         xpath=//button[
             contains(
@@ -112,33 +99,25 @@ async def click_continue(page, context):
     if not btn:
         return page
 
-    visible = await page.evaluate("""
-        el => {
-            const r = el.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
-        }
-    """, btn)
-
-    if not visible:
+    if not await element_visible(page, btn):
         return page
 
-    continue_clicked = True
+    continue_done = True
 
-    print(">>> CLICKING CONTINUE")
-    log.info(">>> Clicking CONTINUE")
+    print(">>> CONTINUE CLICKED")
+    log.info("➡️ CONTINUE CLICKED")
 
-    # JS click (works even inside <a>)
     await page.evaluate("el => el.click()", btn)
 
-    # NEW TAB OR SAME TAB
+    # -------- navigation handling --------
     try:
         async with context.expect_page(timeout=6000) as p:
             pass
         new_page = await p.value
         await new_page.wait_for_load_state("domcontentloaded")
 
-        print(f"🌍 NEW TAB OPENED: {new_page.url}")
-        log.info(f"🌍 New tab opened: {new_page.url}")
+        print(f"🌍 NEW TAB: {new_page.url}")
+        log.info(f"🌍 New tab: {new_page.url}")
 
         await new_page.wait_for_timeout(5000)
         await take_screenshot(new_page)
@@ -148,75 +127,68 @@ async def click_continue(page, context):
     except:
         await page.wait_for_load_state("domcontentloaded")
 
-        print(f"🌍 SAME TAB URL: {page.url}")
-        log.info(f"🌍 Same tab URL: {page.url}")
+        print(f"🌍 SAME TAB: {page.url}")
+        log.info(f"🌍 Same tab: {page.url}")
 
         await page.wait_for_timeout(5000)
         await take_screenshot(page)
 
         return page
 
-# =========================
-# URL CHANGE HANDLER
-# =========================
+# ================= URL CHANGE =================
 async def handle_url_change(page):
-    global current_url, continue_clicked, verify_clicked
+    global current_url, verify_done, continue_done
 
     if page.url != current_url:
         current_url = page.url
-        continue_clicked = False
-        verify_clicked = False
+        verify_done = False
+        continue_done = False
 
         await page.wait_for_load_state("domcontentloaded")
 
-        print(f"\n🌍 NEW PAGE:")
+        print(f"\n🌍 PAGE LOADED:")
         print(f"➡️ {page.url}\n")
-        log.info(f"🌍 New URL loaded: {page.url}")
+        log.info(f"🌍 Page loaded: {page.url}")
 
         if "webdb.store" in page.url:
-            print("🛑 webdb.store detected — STOP")
-            log.info("🛑 webdb.store detected")
+            print("🛑 webdb.store reached — STOP")
+            log.info("🛑 webdb.store reached")
             return False
 
     return True
 
-# =========================
-# MAIN LOOP
-# =========================
-async def watch(page, context):
+# ================= MAIN LOOP =================
+async def watcher(page, context):
     global current_url
     current_url = page.url
 
-    log.info("🔁 Watcher started")
+    log.info("🔁 Smart watcher started")
 
     while True:
         if not await handle_url_change(page):
             break
 
-        await remove_consent(page)
+        await remove_overlay(page)
 
         await click_verify(page)
         page = await click_continue(page, context)
 
         await page.wait_for_timeout(CHECK_INTERVAL)
 
-# =========================
-# MAIN
-# =========================
+# ================= MAIN =================
 async def run():
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=HEADLESS,
             args=["--disable-blink-features=AutomationControlled"]
         )
-
         context = await browser.new_context()
         page = await context.new_page()
 
         log.info(f"🌍 Opening {TARGET_URL}")
         await page.goto(TARGET_URL, wait_until="domcontentloaded")
 
-        await watch(page, context)
+        await watcher(page, context)
 
         await browser.close()
 
