@@ -2,13 +2,22 @@ import asyncio
 import logging
 import random
 import os
+import threading
 from datetime import datetime
 from playwright.async_api import async_playwright
+
+user_agents = [
+    "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 12; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 9; SM-G960F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Mobile Safari/537.36",
+]
 
 # ================= CONFIG =================
 START_SITE = "https://yomovies.delivery"
 CHECK_INTERVAL = 2000
-HEADLESS = True
+HEADLESS = False
 
 USE_PROXY = False
 PROXY = {
@@ -16,6 +25,22 @@ PROXY = {
     "username": "USER",
     "password": "PASS"
 }
+
+proxies = []
+if os.path.exists("proxy.txt"):
+    with open("proxy.txt", "r") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                parts = line.split(":")
+                if len(parts) == 4:
+                    host, port, username, password = parts
+                    proxies.append({
+                        "server": f"http://{host}:{port}",
+                        "username": username,
+                        "password": password
+                    })
+USE_PROXY = len(proxies) > 0
 
 # ================= LOGGING =================
 logging.basicConfig(
@@ -127,6 +152,7 @@ async def click_random_dwd(page, context):
     # LEVEL 1: JS CLICK
     # ======================
     await page.evaluate("el => el.click()", btn)
+    await page.wait_for_timeout(random.randint(500, 1500))
 
     # ======================
     # WAIT FOR NAVIGATION
@@ -173,6 +199,7 @@ async def click_verify(page):
     if btn and await visible(page, btn):
         verify_done = True
         await page.evaluate("el => el.click()", btn)
+        await page.wait_for_timeout(random.randint(500, 1500))
         print(">>> VERIFY CLICKED")
         log.info("✅ VERIFY CLICKED")
 
@@ -190,6 +217,7 @@ async def click_continue(page, context):
 
     continue_done = True
     await page.evaluate("el => el.click()", btn)
+    await page.wait_for_timeout(random.randint(500, 1500))
 
     print(">>> CONTINUE CLICKED")
     log.info("➡️ CONTINUE CLICKED")
@@ -214,12 +242,13 @@ async def click_get_link(page, context):
     if getlink_done:
         return page
 
-    btn = await page.query_selector("a#get-link")
+    btn = await page.query_selector("a.get-link")
     if not btn or not await visible(page, btn):
         return page
 
     getlink_done = True
     await page.evaluate("el => el.click()", btn)
+    await page.wait_for_timeout(random.randint(500, 1500))
 
     print(">>> GET LINK CLICKED")
     log.info("➡️ GET LINK CLICKED")
@@ -270,20 +299,32 @@ async def watcher(page, context):
         page = await click_continue(page, context)
         page = await click_get_link(page, context)
 
-        await page.wait_for_timeout(CHECK_INTERVAL)
+        await page.wait_for_timeout(random.randint(1000, 3000))
 
 # ================= MAIN =================
 async def run():
     async with async_playwright() as p:
         launch_args = {
             "headless": HEADLESS,
-            "args": ["--disable-blink-features=AutomationControlled"]
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-web-security",
+                "--disable-features=VizDisplayCompositor",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ]
         }
         if USE_PROXY:
-            launch_args["proxy"] = PROXY
+            proxy = random.choice(proxies)
+            launch_args["proxy"] = proxy
 
         browser = await p.chromium.launch(**launch_args)
-        context = await browser.new_context()
+        device = p.devices['iPhone 12']
+        context = await browser.new_context(
+            **device,
+            proxy=proxy if USE_PROXY else None,
+            extra_http_headers={"User-Agent": random.choice(user_agents)}
+        )
         page = await context.new_page()
 
         await page.goto(START_SITE, wait_until="domcontentloaded")
@@ -292,5 +333,15 @@ async def run():
 
         await browser.close()
 
-if __name__ == "__main__":
+def run_async():
     asyncio.run(run())
+
+if __name__ == "__main__":
+    num_threads = 3  # Adjust number of concurrent instances
+    threads = []
+    for i in range(num_threads):
+        t = threading.Thread(target=run_async)
+        threads.append(t)
+        t.start()
+    for t in threads:
+        t.join()
