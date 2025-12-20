@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import random
+import os
+from datetime import datetime
 from playwright.async_api import async_playwright
 
 # ================= CONFIG =================
@@ -25,6 +27,17 @@ logging.basicConfig(
     ]
 )
 log = logging.getLogger("AUTO")
+
+# ================= SCREENSHOTS =================
+SCREENSHOT_DIR = "screenshots"
+os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+
+async def take_screenshot(page, prefix="dwd"):
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = f"{SCREENSHOT_DIR}/{prefix}_{ts}.png"
+    await page.screenshot(path=path, full_page=True)
+    print(f"📸 SCREENSHOT SAVED: {path}")
+    log.info(f"📸 Screenshot saved: {path}")
 
 # ================= STATE =================
 current_url = None
@@ -58,11 +71,10 @@ async def visible(page, el):
         }
     """, el)
 
-# ================= STEP 1: RANDOM POST =================
+# ================= RANDOM POST =================
 async def open_random_download_post(page):
     links = []
-    anchors = await page.query_selector_all("a[href]")
-    for a in anchors:
+    for a in await page.query_selector_all("a[href]"):
         href = await a.get_attribute("href")
         if href and "download" in href.lower():
             links.append(href)
@@ -76,29 +88,54 @@ async def open_random_download_post(page):
     print(f">>> RANDOM POST OPENED: {target}")
     log.info(f"🎯 Random post selected: {target}")
 
-# ================= STEP 2: RANDOM DWD BUTTON =================
-async def click_random_dwd(page):
+# ================= RANDOM DWD CLICK (FIXED) =================
+async def click_random_dwd(page, context):
     global dwd_done
     if dwd_done:
-        return
+        return page
 
-    buttons = await page.query_selector_all(".dwd-button")
-    visible_buttons = []
-
-    for b in buttons:
+    buttons = []
+    for b in await page.query_selector_all(".dwd-button"):
         if await visible(page, b):
-            visible_buttons.append(b)
+            buttons.append(b)
 
-    if not visible_buttons:
-        return
+    if not buttons:
+        return page
 
-    btn = random.choice(visible_buttons)
+    btn = random.choice(buttons)
     dwd_done = True
-
-    await page.evaluate("el => el.click()", btn)
 
     print(">>> RANDOM DWD BUTTON CLICKED")
     log.info("➡️ Random DWD button clicked")
+
+    # JS click
+    await page.evaluate("el => el.click()", btn)
+
+    # ---- WAIT FOR NAVIGATION ----
+    try:
+        async with context.expect_page(timeout=6000) as p:
+            pass
+        new_page = await p.value
+        await new_page.wait_for_load_state("domcontentloaded")
+
+        print(f"🌍 DWD NEW TAB: {new_page.url}")
+        log.info(f"🌍 DWD new tab: {new_page.url}")
+
+        await new_page.wait_for_timeout(5000)
+        await take_screenshot(new_page, "dwd")
+
+        return new_page
+
+    except:
+        await page.wait_for_load_state("domcontentloaded")
+
+        print(f"🌍 DWD SAME TAB: {page.url}")
+        log.info(f"🌍 DWD same tab: {page.url}")
+
+        await page.wait_for_timeout(5000)
+        await take_screenshot(page, "dwd")
+
+        return page
 
 # ================= VERIFY =================
 async def click_verify(page):
@@ -138,13 +175,13 @@ async def click_continue(page, context):
             pass
         new_page = await p.value
         await new_page.wait_for_load_state("domcontentloaded")
-        print(f"🌍 NEW TAB OPENED: {new_page.url}")
-        log.info(f"🌍 New tab: {new_page.url}")
+        print(f"🌍 CONTINUE NEW TAB: {new_page.url}")
+        log.info(f"🌍 Continue new tab: {new_page.url}")
         return new_page
     except:
         await page.wait_for_load_state("domcontentloaded")
-        print(f"🌍 SAME TAB URL: {page.url}")
-        log.info(f"🌍 Same tab: {page.url}")
+        print(f"🌍 CONTINUE SAME TAB: {page.url}")
+        log.info(f"🌍 Continue same tab: {page.url}")
         return page
 
 # ================= GET LINK =================
@@ -204,7 +241,7 @@ async def watcher(page, context):
             break
 
         await remove_overlay(page)
-        await click_random_dwd(page)
+        page = await click_random_dwd(page, context)
         await click_verify(page)
         page = await click_continue(page, context)
         page = await click_get_link(page, context)
