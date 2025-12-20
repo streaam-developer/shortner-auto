@@ -7,10 +7,8 @@ const POLL_INTERVAL = 2000;
 
 // ================= PROXY CONFIG =================
 const PROXY_ENABLED = false;
-
 const PROXIES = [
-  // format: http://user:pass@ip:port
-  // 'http://username:password@127.0.0.1:8080'
+  // 'http://user:pass@ip:port'
 ];
 
 function getRandomProxy() {
@@ -44,7 +42,6 @@ async function randomMouseMove(page) {
   const width = 360;
   const height = 740;
   const moves = 3 + Math.floor(Math.random() * 5);
-
   for (let i = 0; i < moves; i++) {
     await page.mouse.move(
       Math.random() * width,
@@ -111,7 +108,6 @@ async function pickRandomPost(page) {
   await page.waitForLoadState('domcontentloaded');
   const posts = await page.$$('article.post h3.entry-title a');
   if (!posts.length) throw new Error('No posts found');
-
   log(`Found ${posts.length} posts`);
   return posts[Math.floor(Math.random() * posts.length)];
 }
@@ -174,10 +170,12 @@ async function runSession() {
     await newTab.waitForLoadState('domcontentloaded');
     log('DWD clicked → new tab');
 
+    let activePage = newTab;
+
     // ================= MAIN 2-SEC LOOP =================
     while (RUNNING) {
       try {
-        const url = newTab.url();
+        const url = activePage.url();
 
         // FINAL EXIT
         if (url.includes('webdb.store')) {
@@ -186,11 +184,24 @@ async function runSession() {
           break;
         }
 
-        await randomMouseMove(newTab);
+        await randomMouseMove(activePage);
 
-        // Get Link
+        // 🔥 AROLINKS FORCE GET LINK (handles new tab)
         if (url.includes('arolinks.com')) {
-          if (await safeClick(newTab, 'button:has-text("Get Link")', 'Get Link')) {
+          const [maybeNewTab] = await Promise.all([
+            context.waitForEvent('page').catch(() => null),
+            safeClick(
+              activePage,
+              'button#get-link.btn.btn-unlock',
+              'Get Link',
+              true // FORCE
+            )
+          ]);
+
+          if (maybeNewTab) {
+            await maybeNewTab.waitForLoadState('domcontentloaded');
+            activePage = maybeNewTab;
+            log('Get Link opened in NEW TAB');
             await sleep(POLL_INTERVAL);
             continue;
           }
@@ -198,7 +209,7 @@ async function runSession() {
 
         // Verify
         if (await safeClick(
-          newTab,
+          activePage,
           'button.ce-btn.ce-blue:has-text("Verify")',
           'Verify'
         )) {
@@ -208,7 +219,7 @@ async function runSession() {
 
         // Normal Continue
         if (await safeClick(
-          newTab,
+          activePage,
           'a#btn7 button.ce-btn.ce-blue:has-text("Continue")',
           'Continue'
         )) {
@@ -216,9 +227,9 @@ async function runSession() {
           continue;
         }
 
-        // 🔥 FORCE Continue (id="cross-snp2")
+        // FORCE Continue (#cross-snp2)
         if (await safeClick(
-          newTab,
+          activePage,
           'button#cross-snp2.ce-btn.ce-blue',
           'Force Continue',
           true
@@ -253,7 +264,7 @@ async function runSession() {
 
 // ================= RUNNER =================
 (async () => {
-  log('🚀 Automation started (proxy + force click + human behavior)');
+  log('🚀 Automation started (arolinks force Get Link + new-tab handling)');
   while (RUNNING) {
     await runSession();
   }
