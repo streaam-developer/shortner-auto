@@ -77,7 +77,7 @@ async function safeClick(page, selector, label, force = false) {
     });
 
     // 🔥 AROLINKS: enable button forcibly (handles disabled/countdown)
-    await el.evaluate((b) => {
+    await el.locator('button').evaluate((b) => {
       b.disabled = false;
       b.removeAttribute('disabled');
       b.removeAttribute('aria-disabled');
@@ -89,24 +89,30 @@ async function safeClick(page, selector, label, force = false) {
     await el.scrollIntoViewIfNeeded();
     await randomMouseMove(page);
 
-    try {
-      if (force) {
-        await el.click({ force: true, timeout: 2000 });
-      } else {
-        await Promise.race([
-          el.click({ timeout: 2000 }),
-          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3000 }).catch(() => {})
-        ]);
+    let clicked = false;
+    for (let attempt = 0; attempt < 3 && !clicked; attempt++) {
+      try {
+        if (force) {
+          await el.click({ force: true, timeout: 2000 });
+        } else {
+          await Promise.race([
+            el.click({ timeout: 2000 }),
+            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3000 }).catch(() => {})
+          ]);
+        }
+        clicked = true;
+      } catch {
+        // Hard JS click (works on arolinks)
+        await el.locator('button').evaluate((e) => {
+          e.dispatchEvent(new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
+        });
+        clicked = true; // Assume JS click works
       }
-    } catch {
-      // Hard JS click (works on arolinks)
-      await el.evaluate((e) => {
-        e.dispatchEvent(new MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-          view: window
-        }));
-      });
+      if (!clicked && attempt < 2) await sleep(1000); // Wait before retry
     }
 
     log(`${label} clicked${force ? ' (force)' : ''}`);
