@@ -105,11 +105,12 @@ async function safeClick(page, selector, label, force = false) {
       } catch {
         // Hard JS click (works on arolinks)
         await buttonEl.evaluate((e) => {
-          e.dispatchEvent(new MouseEvent('click', {
-            bubbles: true,
-            cancelable: true,
-            view: window
-          }));
+          const parentLink = e.closest('a');
+          if (parentLink) {
+            parentLink.click();
+          } else {
+            e.click();
+          }
         });
         clicked = true; // Assume JS click works
       }
