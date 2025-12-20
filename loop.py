@@ -94,6 +94,21 @@ async def visible(page, el):
     except:
         return False
 
+async def random_behavior(page):
+    # Random scroll
+    scroll_amount = random.randint(50, 200)
+    await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
+    await page.wait_for_timeout(random.randint(200, 500))
+
+    # Random mouse move (if applicable)
+    try:
+        x = random.randint(0, 375)
+        y = random.randint(0, 667)
+        await page.mouse.move(x, y)
+        await page.wait_for_timeout(random.randint(100, 300))
+    except:
+        pass  # Mobile might not have mouse
+
 # ================= RANDOM POST =================
 async def open_random_download_post(page):
     links = []
@@ -145,10 +160,11 @@ async def click_random_dwd(page, context):
     print(">>> DWD DOWNLOAD NOW CLICKED")
     log.info("➡️ DWD Download Now clicked")
 
-    # ======================
-    # LEVEL 1: JS CLICK
-    # ======================
-    await page.evaluate("el => el.click()", btn)
+    # Random behavior for undetectable
+    await random_behavior(page)
+
+    # Click
+    await btn.click()
     await page.wait_for_timeout(random.randint(500, 1500))
 
     # ======================
@@ -158,6 +174,7 @@ async def click_random_dwd(page, context):
         async with context.expect_page(timeout=7000) as p:
             pass
         new_page = await p.value
+        await new_page.set_viewport_size({"width": 375, "height": 667})
         await new_page.wait_for_load_state("domcontentloaded")
         await new_page.wait_for_load_state("networkidle")
 
@@ -197,7 +214,8 @@ async def click_verify(page):
     )
     if btn and await visible(page, btn):
         verify_done = True
-        await page.evaluate("el => el.click()", btn)
+        await random_behavior(page)
+        await btn.click()
         await page.wait_for_timeout(random.randint(500, 1500))
         print(">>> VERIFY CLICKED")
         log.info("✅ VERIFY CLICKED")
@@ -218,7 +236,8 @@ async def click_continue(page, context):
         return page
 
     continue_done = True
-    await page.evaluate("el => el.click()", btn)
+    await random_behavior(page)
+    await btn.click()
     await page.wait_for_timeout(random.randint(500, 1500))
 
     print(">>> CONTINUE CLICKED")
@@ -228,6 +247,7 @@ async def click_continue(page, context):
         async with context.expect_page(timeout=6000) as p:
             pass
         new_page = await p.value
+        await new_page.set_viewport_size({"width": 375, "height": 667})
         await new_page.wait_for_load_state("domcontentloaded")
         await new_page.wait_for_load_state("networkidle")
         print(f"🌍 CONTINUE NEW TAB: {new_page.url}")
@@ -252,7 +272,8 @@ async def click_get_link(page, context):
         return page
 
     getlink_done = True
-    await page.evaluate("el => el.click()", btn)
+    await random_behavior(page)
+    await btn.click()
     await page.wait_for_timeout(random.randint(500, 1500))
 
     print(">>> GET LINK CLICKED")
@@ -262,6 +283,7 @@ async def click_get_link(page, context):
         async with context.expect_page(timeout=6000) as p:
             pass
         new_page = await p.value
+        await new_page.set_viewport_size({"width": 375, "height": 667})
         await new_page.wait_for_load_state("domcontentloaded")
         await new_page.wait_for_load_state("networkidle")
         print(f"🌍 FINAL TAB: {new_page.url}")
