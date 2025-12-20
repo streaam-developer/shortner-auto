@@ -81,9 +81,7 @@ async def remove_overlay(page):
         await page.evaluate("""
             () => {
                 document.querySelectorAll(
-                    '.fc-consent-root,
-                     .fc-dialog-overlay,
-                     .fc-faq-icon'
+                    '.fc-consent-root, .fc-dialog-overlay, .fc-faq-icon, .modal, .popup, .overlay, .dialog, .lightbox, .banner, .notification, .alert'
                 ).forEach(e => e.remove());
             }
         """)
