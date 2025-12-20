@@ -59,7 +59,7 @@ async function randomScroll(page) {
 async function safeClick(page, selector, label, force = false) {
   try {
     const el = page.locator(selector).first();
-    await el.waitFor({ timeout: 2000 }).catch(() => {});
+    await el.waitFor({ timeout: 5000 }).catch(() => {});
     if (!(await el.isVisible())) {
       log(`${label} element not visible after 5s wait`);
       return false;
@@ -77,7 +77,8 @@ async function safeClick(page, selector, label, force = false) {
     });
 
     // 🔥 AROLINKS: enable button forcibly (handles disabled/countdown)
-    await el.locator('button').evaluate((b) => {
+    const buttonEl = selector.startsWith('a:') ? el.locator('button').first() : el;
+    await buttonEl.evaluate((b) => {
       b.disabled = false;
       b.removeAttribute('disabled');
       b.removeAttribute('aria-disabled');
@@ -103,7 +104,7 @@ async function safeClick(page, selector, label, force = false) {
         clicked = true;
       } catch {
         // Hard JS click (works on arolinks)
-        await el.locator('button').evaluate((e) => {
+        await buttonEl.evaluate((e) => {
           e.dispatchEvent(new MouseEvent('click', {
             bubbles: true,
             cancelable: true,
