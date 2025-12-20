@@ -7,7 +7,7 @@ import re
 import sys
 from datetime import datetime
 from playwright.async_api import async_playwright, Page, Frame
-from playwright_stealth import stealth_async
+from playwright_stealth import Stealth
 
 # ================= CONFIGURATION =================
 START_SITE = "https://yomovies.delivery"
@@ -126,7 +126,7 @@ class AutomationBot:
                 await element.click()
             
             new_page = await new_page_info.value
-            await stealth_async(new_page)
+            # No longer need to apply stealth here, context manager handles it
             await self._configure_network_blocker(new_page)
             await new_page.wait_for_load_state("domcontentloaded", timeout=30000)
             self.logger.info(f"➡️ New tab opened: {new_page.url}")
@@ -198,7 +198,7 @@ class AutomationBot:
         await self.context.grant_permissions(["geolocation"], origin=START_SITE)
         
         self.page = await self.context.new_page()
-        await stealth_async(self.page)
+        # No longer need to apply stealth here, context manager handles it
         await self._configure_network_blocker(self.page)
 
         try:
@@ -267,7 +267,7 @@ class AutomationBot:
 async def main():
     print("Main function started...")
     sys.stdout.flush()
-    async with async_playwright() as playwright:
+    async with Stealth().use_async(async_playwright()) as playwright:
         tasks = []
         active_proxies = proxies if USE_PROXY else [None] * MAX_CONCURRENT_INSTANCES
         for i in range(min(MAX_CONCURRENT_INSTANCES, len(active_proxies))):
