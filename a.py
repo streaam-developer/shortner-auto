@@ -4,7 +4,7 @@ from playwright.async_api import async_playwright
 
 TARGET_URL = "https://arolinks.com/dZJjx"
 CHECK_INTERVAL = 2000
-HEADLESS = False
+HEADLESS = True
 
 logging.basicConfig(
     level=logging.INFO,
