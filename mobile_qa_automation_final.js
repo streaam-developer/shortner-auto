@@ -1,0 +1,184 @@
+const { chromium } = require('playwright');
+const fs = require('fs');
+
+const HOME_URL = 'https://yomovies.delivery';
+const WAIT_AFTER_WEBDB = 5000;
+
+const ALLOWED_DOMAINS = [
+  'yomovies.delivery',
+  'arolinks.com',
+  'webdb.store'
+];
+
+let RUNNING = true;
+let SESSION_COUNT = 0;
+
+// ================= UTILITIES =================
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+function randomDelay(min = 1500, max = 4000) {
+  return sleep(min + Math.random() * (max - min));
+}
+
+function log(step) {
+  const msg = `[${new Date().toISOString()}] ${step}`;
+  console.log(msg);
+  fs.appendFileSync('automation.log', msg + '\n');
+}
+
+function domainAllowed(url) {
+  return ALLOWED_DOMAINS.some(d => url.includes(d));
+}
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n🛑 Graceful shutdown requested...');
+  RUNNING = false;
+});
+
+// ================= CORE LOGIC =================
+
+async function pickRandomPost(page) {
+  await page.waitForLoadState('domcontentloaded');
+  const links = await page.$$('a[href]');
+  const filtered = [];
+
+  for (const l of links) {
+    const href = await l.getAttribute('href');
+    if (href && href.startsWith('/') && href.length > 5) {
+      filtered.push(l);
+    }
+  }
+
+  if (!filtered.length) throw new Error('No post links found');
+  return filtered[Math.floor(Math.random() * filtered.length)];
+}
+
+async function runSession() {
+  const browser = await chromium.launch({ headless: false });
+
+  const context = await browser.newContext({
+    viewport: { width: 360, height: 740 },
+    isMobile: true,
+    hasTouch: true,
+    userAgent:
+      'Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+  });
+
+  const page = await context.newPage();
+
+  try {
+    SESSION_COUNT++;
+    log(`▶ SESSION ${SESSION_COUNT} STARTED`);
+
+    // 1️⃣ Open home
+    await page.goto(HOME_URL, { waitUntil: 'domcontentloaded' });
+    log('Home opened');
+    await randomDelay();
+
+    // 2️⃣ Random post
+    const post = await pickRandomPost(page);
+    await post.click();
+    await page.waitForLoadState('domcontentloaded');
+    log('Random post opened');
+    await randomDelay();
+
+    // 3️⃣ Random dwd-button
+    const dwdButtons = await page.$$('.dwd-button');
+    if (!dwdButtons.length) throw new Error('No dwd-button found');
+
+    const dwd = dwdButtons[Math.floor(Math.random() * dwdButtons.length)];
+
+    const [newTab] = await Promise.all([
+      context.waitForEvent('page'),
+      dwd.click()
+    ]);
+
+    await newTab.waitForLoadState('domcontentloaded');
+    log('DWD button clicked → new tab opened');
+
+    // 4️⃣ MAIN LOOP (NO TIMEOUT)
+    while (RUNNING) {
+      const url = newTab.url();
+
+      // ❌ Unexpected domain
+      if (!domainAllowed(url)) {
+        log(`Unexpected domain detected: ${url}`);
+        await newTab.screenshot({ path: `error-${Date.now()}.png` });
+        break;
+      }
+
+      // ✅ FINAL EXIT CONDITION
+      if (url.includes('webdb.store')) {
+        log('webdb.store reached');
+        await sleep(WAIT_AFTER_WEBDB);
+        break;
+      }
+
+      // 🔗 arolinks Get Link
+      if (url.includes('arolinks.com')) {
+        const getLinkBtn = await newTab.$('button:has-text("Get Link")');
+        if (getLinkBtn && await getLinkBtn.isEnabled()) {
+          log('Get Link clicked');
+          await getLinkBtn.click();
+          await randomDelay();
+          continue;
+        }
+      }
+
+      // ✅ Verify button
+      const verifyBtn = await newTab.$(
+        'button.ce-btn.ce-blue:has-text("Verify")'
+      );
+      if (verifyBtn && await verifyBtn.isVisible()) {
+        log('Verify clicked');
+        await verifyBtn.click();
+        await randomDelay();
+        continue;
+      }
+
+      // ➡ Continue button
+      const continueBtn = await newTab.$(
+        'a#btn7 button.ce-btn.ce-blue:has-text("Continue")'
+      );
+      if (continueBtn && await continueBtn.isVisible()) {
+        log('Continue clicked');
+        await continueBtn.click();
+        await randomDelay();
+        continue;
+      }
+
+      // ⏳ Nothing found
+      await sleep(2000);
+    }
+
+  } catch (err) {
+    log(`❌ ERROR: ${err.message}`);
+    try {
+      await page.screenshot({ path: `fatal-${Date.now()}.png` });
+    } catch {}
+  } finally {
+    await context.close();
+    await browser.close();
+    log(`⏹ SESSION ${SESSION_COUNT} CLOSED`);
+
+    // Cooldown every 50 sessions
+    if (SESSION_COUNT % 50 === 0) {
+      log('😴 Cooldown 60s');
+      await sleep(60000);
+    }
+  }
+}
+
+// ================= RUNNER =================
+
+(async () => {
+  log('🚀 Mobile QA Automation Started');
+  while (RUNNING) {
+    await runSession();
+  }
+  log('🛑 Automation stopped cleanly');
+})();
