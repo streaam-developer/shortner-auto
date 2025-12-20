@@ -39,7 +39,7 @@ async def take_screenshot(page, prefix="continue"):
 # =========================
 BUTTONS = [
     ("VERIFY", "button#btn6.ce-btn.ce-blue"),
-    ("CONTINUE", "a#btn7 button.ce-btn.ce-blue"),
+    # CONTINUE handled separately (force + new tab safe)
 ]
 
 clicked_buttons = set()
@@ -63,7 +63,49 @@ async def remove_consent(page):
         pass
 
 # =========================
-# SAFE CLICK (NAV AWARE)
+# FORCE CONTINUE CLICK (NEW TAB SAFE)
+# =========================
+async def click_continue_force(page, context):
+    selector = "button.ce-btn.ce-blue:has-text('Continue')"
+    btn = await page.query_selector(selector)
+
+    if not btn:
+        return page
+
+    print(">>> CLICKING CONTINUE (force)")
+    log.info(">>> Clicking CONTINUE (force)")
+
+    try:
+        # 🆕 NEW TAB HANDLER
+        async with context.expect_page(timeout=5000) as new_page_info:
+            await btn.click(force=True)
+
+        new_page = await new_page_info.value
+        await new_page.wait_for_load_state("domcontentloaded")
+
+        print(f"🌍 NEW TAB OPENED: {new_page.url}")
+        log.info(f"🌍 New tab opened: {new_page.url}")
+
+        await new_page.wait_for_timeout(5000)
+        await take_screenshot(new_page, "continue")
+
+        return new_page
+
+    except:
+        # SAME TAB NAVIGATION
+        await btn.click(force=True)
+        await page.wait_for_load_state("domcontentloaded")
+
+        print(f"🌍 SAME TAB URL: {page.url}")
+        log.info(f"🌍 Same tab URL: {page.url}")
+
+        await page.wait_for_timeout(5000)
+        await take_screenshot(page, "continue")
+
+        return page
+
+# =========================
+# SAFE CLICK (VERIFY)
 # =========================
 async def safe_click(page, element, name, selector):
     global clicked_buttons
@@ -72,8 +114,7 @@ async def safe_click(page, element, name, selector):
         return
 
     try:
-        async with page.expect_navigation(wait_until="domcontentloaded", timeout=15000):
-            await element.click(force=True)
+        await element.click(force=True)
     except:
         await element.evaluate("el => el.click()")
 
@@ -82,30 +123,22 @@ async def safe_click(page, element, name, selector):
     print(f">>> BUTTON CLICKED: {name}")
     log.info(f"✅ CLICKED {name}")
 
-    if name == "CONTINUE":
-        await page.wait_for_timeout(5000)
-        await take_screenshot(page, "continue")
-
 # =========================
-# URL CHANGE HANDLER (FIXED)
+# URL CHANGE HANDLER
 # =========================
 async def handle_url_change(page):
     global current_url, clicked_buttons
 
-    new_url = page.url
-    if new_url != current_url:
-        current_url = new_url
-
-        # 🔥 WAIT FOR NEW PAGE DOM
+    if page.url != current_url:
+        current_url = page.url
         await page.wait_for_load_state("domcontentloaded")
-
-        clicked_buttons.clear()  # reset ONLY after DOM ready
+        clicked_buttons.clear()
 
         print(f"\n🌍 NEW PAGE OPENED:")
-        print(f"➡️  {new_url}\n")
-        log.info(f"🌍 New URL loaded: {new_url}")
+        print(f"➡️  {page.url}\n")
+        log.info(f"🌍 New URL loaded: {page.url}")
 
-        if "webdb.store" in new_url:
+        if "webdb.store" in page.url:
             print("🛑 webdb.store detected, closing session")
             log.info("🛑 webdb.store detected → exit")
             return False
@@ -113,13 +146,13 @@ async def handle_url_change(page):
     return True
 
 # =========================
-# MAIN LOOP (FIXED)
+# MAIN LOOP
 # =========================
-async def watch_and_click(page):
+async def watch_and_click(page, context):
     global current_url
     current_url = page.url
 
-    log.info("🔁 Advanced watcher started (navigation safe)")
+    log.info("🔁 Advanced watcher started")
 
     while True:
         if not await handle_url_change(page):
@@ -128,10 +161,14 @@ async def watch_and_click(page):
         await remove_consent(page)
 
         try:
-            for name, selector in BUTTONS:
-                el = await page.query_selector(selector)
-                if el and await el.is_visible():
-                    await safe_click(page, el, name, selector)
+            # VERIFY
+            verify_sel = "button#btn6.ce-btn.ce-blue"
+            verify = await page.query_selector(verify_sel)
+            if verify and await verify.is_visible():
+                await safe_click(page, verify, "VERIFY", verify_sel)
+
+            # CONTINUE (FORCE + TAB SAFE)
+            page = await click_continue_force(page, context)
 
         except Exception as e:
             log.error(f"⚠️ Loop error: {e}")
@@ -154,7 +191,7 @@ async def run():
         log.info(f"🌍 Opening {TARGET_URL}")
         await page.goto(TARGET_URL, wait_until="domcontentloaded")
 
-        await watch_and_click(page)
+        await watch_and_click(page, context)
 
         await browser.close()
 
