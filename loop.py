@@ -239,44 +239,60 @@ class AutomationBot:
                 
                 action_taken = False
                 
-                try:
-                    dwd_button = self.page.locator("button:text-matches('download', 'i')").first
-                    verify_button = self.page.locator("button:text-matches('verify', 'i')").first
-                    continue_button = self.page.locator("button:text-matches('continue', 'i')").first
-                    getlink_button = self.page.locator("a.get-link").first
+                # We search both the main page and all of its iframes
+                search_contexts = [self.page] + self.page.frames
+                self.logger.info(f"Searching for actions on page and {len(search_contexts) - 1} iframe(s).")
 
-                    if not self.page_state["dwd_clicked"] and await dwd_button.is_visible():
-                        self.page = await self._click_element_human_like(self.page, "button:text-matches('download', 'i')")
-                        self.page_state["dwd_clicked"] = True
-                        action_taken = True
+                for search_context in search_contexts:
+                    try:
+                        # More robust selectors to find the target buttons
+                        dwd_selector = "button:text-matches('download', 'i'), a:text-matches('download', 'i')"
+                        verify_selector = "button:text-matches('verify', 'i')"
+                        continue_selector = "button:text-matches('continue', 'i')"
+                        getlink_selector = "a.get-link"
+
+                        if not self.page_state["dwd_clicked"] and await search_context.locator(dwd_selector).first.is_visible(timeout=500):
+                            self.page = await self._click_element_human_like(search_context, dwd_selector)
+                            self.page_state["dwd_clicked"] = True
+                            action_taken = True
+                        
+                        elif not self.page_state["verify_clicked"] and await search_context.locator(verify_selector).first.is_visible(timeout=500):
+                            self.page = await self._click_element_human_like(search_context, verify_selector)
+                            self.page_state["verify_clicked"] = True
+                            action_taken = True
+
+                        elif not self.page_state["continue_clicked"] and await search_context.locator(continue_selector).first.is_visible(timeout=500):
+                            self.page = await self._click_element_human_like(search_context, continue_selector)
+                            self.page_state["continue_clicked"] = True
+                            action_taken = True
+                        
+                        elif not self.page_state["getlink_clicked"] and await search_context.locator(getlink_selector).first.is_visible(timeout=500):
+                            self.page = await self._click_element_human_like(search_context, getlink_selector)
+                            self.page_state["getlink_clicked"] = True
+                            action_taken = True
+                            self.logger.info(f"✅ Final link page reached: {self.page.url}")
+                            break
+
+                    except Exception:
+                        # This is expected if the element is not in the current frame
+                        continue
                     
-                    elif not self.page_state["verify_clicked"] and await verify_button.is_visible():
-                        self.page = await self._click_element_human_like(self.page, "button:text-matches('verify', 'i')")
-                        self.page_state["verify_clicked"] = True
-                        action_taken = True
+                    if action_taken:
+                        break # Exit the frame search loop once an action is taken
 
-                    elif not self.page_state["continue_clicked"] and await continue_button.is_visible():
-                        self.page = await self._click_element_human_like(self.page, "button:text-matches('continue', 'i')")
-                        self.page_state["continue_clicked"] = True
-                        action_taken = True
-                    
-                    elif not self.page_state["getlink_clicked"] and await getlink_button.is_visible():
-                        self.page = await self._click_element_human_like(self.page, "a.get-link")
-                        self.page_state["getlink_clicked"] = True
-                        action_taken = True
-                        self.logger.info(f"✅ Final link page reached: {self.page.url}")
-                        break
-
-                except Exception as e:
-                    self.logger.debug(f"Could not find or click an element on this iteration: {e}")
-
-                if not action_taken:
+                if action_taken:
+                    stuck_iterations = 0 # Reset stuck counter if we made progress
+                else:
                     stuck_iterations += 1
                     self.logger.info(f"No actionable elements found. Stuck count: {stuck_iterations}")
                     if stuck_iterations >= 3:
                         self.logger.warning("Bot is stuck on this page. Ending flow.")
+                        await self._take_screenshot(self.page, "stuck")
                         break
                 
+                if self.page_state["getlink_clicked"]:
+                    break
+
                 if i == max_iterations - 1:
                     self.logger.warning("Max iterations reached without finding the final link.")
 
