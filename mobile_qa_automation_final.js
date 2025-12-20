@@ -103,16 +103,18 @@ async function safeClick(page, selector, label, force = false) {
         }
         clicked = true;
       } catch {
-        // Hard JS click (works on arolinks)
-        await buttonEl.evaluate((e) => {
-          const parentLink = e.closest('a');
-          if (parentLink) {
-            parentLink.click();
-          } else {
-            e.click();
-          }
-        });
-        clicked = true; // Assume JS click works
+        // Hard JS click (works on arolinks): navigate to href directly
+        const href = await buttonEl.evaluate((e) => e.closest('a')?.href);
+
+        if (href) {
+          log(`Fallback: Navigating directly to href: ${href}`);
+          await page.goto(href, { waitUntil: 'domcontentloaded' });
+        } else {
+          // If no href, fallback to a JS click
+          log('Fallback: No href found, trying JS click.');
+          await buttonEl.evaluate((e) => e.click());
+        }
+        clicked = true; // Assume navigation or click worked
       }
       if (!clicked && attempt < 2) await sleep(1000); // Wait before retry
     }
