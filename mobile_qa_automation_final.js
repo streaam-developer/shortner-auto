@@ -58,8 +58,12 @@ async function randomScroll(page) {
 // ================= SAFE CLICK (AROLINKS FIXED) =================
 async function safeClick(page, selector, label, force = false) {
   try {
-    const el = await page.$(selector);
-    if (!el) return false;
+    const el = page.locator(selector).first();
+    await el.waitFor({ timeout: 5000 }).catch(() => {});
+    if (!(await el.isVisible())) {
+      log(`${label} element not visible after 5s wait`);
+      return false;
+    }
 
     // Remove overlays/iframes
     await page.evaluate(() => {
@@ -73,16 +77,14 @@ async function safeClick(page, selector, label, force = false) {
     });
 
     // 🔥 AROLINKS: enable button forcibly (handles disabled/countdown)
-    await page.evaluate((sel) => {
-      const b = document.querySelector(sel);
-      if (!b) return;
+    await el.evaluate((b) => {
       b.disabled = false;
       b.removeAttribute('disabled');
       b.removeAttribute('aria-disabled');
       b.style.pointerEvents = 'auto';
       b.style.display = 'block';
       b.classList.remove('disabled');
-    }, selector);
+    });
 
     await el.scrollIntoViewIfNeeded();
     await randomMouseMove(page);
@@ -98,15 +100,13 @@ async function safeClick(page, selector, label, force = false) {
       }
     } catch {
       // Hard JS click (works on arolinks)
-      await page.evaluate((sel) => {
-        const e = document.querySelector(sel);
-        if (!e) return;
+      await el.evaluate((e) => {
         e.dispatchEvent(new MouseEvent('click', {
           bubbles: true,
           cancelable: true,
           view: window
         }));
-      }, selector);
+      });
     }
 
     log(`${label} clicked${force ? ' (force)' : ''}`);
@@ -207,7 +207,7 @@ async function runSession() {
             context.waitForEvent('page').catch(() => null),
             safeClick(
               activePage,
-              'button#get-link.btn.btn-unlock',
+              'button:has-text("Get Link")',
               'Get Link',
               true // FORCE
             )
@@ -235,7 +235,7 @@ async function runSession() {
         // Continue (normal)
         if (await safeClick(
           activePage,
-          'a#btn7 button.ce-btn.ce-blue:has-text("Continue")',
+          'button:has-text("Continue")',
           'Continue'
         )) {
           await sleep(POLL_INTERVAL);
