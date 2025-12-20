@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 import os
+import re
 from datetime import datetime
 from playwright.async_api import async_playwright, Page, BrowserContext
 
@@ -9,6 +10,7 @@ from playwright.async_api import async_playwright, Page, BrowserContext
 START_SITE = "https://yomovies.delivery"
 MAX_CONCURRENT_INSTANCES = 1  # Number of parallel browsers to run
 HEADLESS = False  # Set to True to run without a visible browser window
+SCREENSHOTS_ENABLED = False  # Set to True to save screenshots
 
 # --- Proxy Configuration ---
 # Proxies are loaded from proxy.txt (format: host:port:user:pass)
@@ -72,7 +74,10 @@ class AutomationBot:
         }
 
     async def _take_screenshot(self, page: Page, prefix="page"):
-        """Takes a screenshot of the current page."""
+        """Takes a screenshot of the current page if enabled."""
+        if not SCREENSHOTS_ENABLED:
+            return  # Skip taking screenshot if disabled
+
         try:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             path = os.path.join(SCREENSHOT_DIR, f"{prefix}_{self.bot_id}_{ts}.png")
@@ -91,6 +96,36 @@ class AutomationBot:
             scroll_amount = random.randint(-150, 300)
             await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
             await self._human_like_delay(100, 300)
+    
+    async def _configure_network_blocker(self, page: Page):
+        """Sets up a network request blocker to prevent ads and popups."""
+        self.logger.info("Configuring network request blocker.")
+        
+        block_list_patterns = [
+            r"doubleclick\.net", r"googleadservices\.com", r"googlesyndication\.com",
+            r"adservice\.google\.", r"pagead2\.googlesyndication\.com", r"tpc\.googlesyndication\.com",
+            r"adnxs\.com", r"adform\.net", r"criteo\.com", r"pubmatic\.com", r"rubiconproject\.com",
+            r"thetradedesk\.com", r"yieldlab\.net", r"popads\.net", r"propellerads\.com",
+            r"adsterra\.com", r"yandex\.", r"analytics\.google\.com", r"adsco\.re",
+            r"ad\.gt", r"syndication\.exdynsrv\.com", r"go\.mobisla\.com"
+        ]
+        compiled_block_list = [re.compile(p) for p in block_list_patterns]
+
+        async def handle_route(route):
+            url = route.request.url
+            if any(p.search(url) for p in compiled_block_list):
+                try:
+                    await route.abort()
+                    self.logger.debug(f"Blocked request to {url}")
+                except Exception:
+                    pass # Ignore errors on aborting, e.g., if request is already handled
+            else:
+                try:
+                    await route.continue_()
+                except Exception:
+                    pass # Ignore errors on continuing
+        
+        await page.route("**/*", handle_route)
 
     async def _click_element_human_like(self, page: Page, selector: str, new_page_timeout=10000):
         """
@@ -98,9 +133,13 @@ class AutomationBot:
         Handles navigation and checks for special shortener pages.
         """
         try:
-            element = page.locator(selector).first
+            element_context = page
+            if hasattr(page, 'frame'): # Handle Frame object if passed directly
+                element_context = page.frame
+
+            element = element_context.locator(selector).first
             if not await element.is_visible():
-                return page
+                return self.page # Return main page state
 
             self.logger.info(f"Interacting with element: {selector}")
             
@@ -111,17 +150,17 @@ class AutomationBot:
             if bounding_box:
                 target_x = bounding_box['x'] + bounding_box['width'] * random.uniform(0.3, 0.7)
                 target_y = bounding_box['y'] + bounding_box['height'] * random.uniform(0.3, 0.7)
-                await page.mouse.move(target_x, target_y, steps=random.randint(5, 15))
+                await element_context.mouse.move(target_x, target_y, steps=random.randint(5, 15))
                 await self._human_like_delay(100, 400)
 
             async with self.context.expect_page(timeout=new_page_timeout) as new_page_info:
                 await element.click()
             
             new_page = await new_page_info.value
+            await self._configure_network_blocker(new_page) # Block ads on new tab too
             await new_page.wait_for_load_state("domcontentloaded", timeout=30000)
             self.logger.info(f"➡️ New tab opened: {new_page.url}")
 
-            # Check if this new tab is a shortener that needs special handling
             if "readnews18.com" in new_page.url:
                 self.logger.info("Shortener page detected, starting special handling...")
                 new_page = await self._handle_shortener_tab(new_page)
@@ -130,10 +169,10 @@ class AutomationBot:
             return new_page
 
         except Exception:
-            await page.wait_for_load_state("networkidle", timeout=30000)
-            self.logger.info(f"➡️ Navigated on the same tab to: {page.url}")
-            await self._take_screenshot(page, "same_tab_nav")
-            return page
+            await self.page.wait_for_load_state("networkidle", timeout=30000)
+            self.logger.info(f"➡️ Navigated on the same tab to: {self.page.url}")
+            await self._take_screenshot(self.page, "same_tab_nav")
+            return self.page
 
     async def _handle_shortener_tab(self, page: Page) -> Page:
         """
@@ -146,7 +185,6 @@ class AutomationBot:
             await verify_button.wait_for(state="attached", timeout=20000)
             
             self.logger.info("Forcefully clicking attached 'Verify' button, ignoring visibility.")
-            # force=True bypasses the actionability checks; we don't need to wait for visibility.
             await verify_button.click(force=True)
             await self._human_like_delay(500, 1000)
 
@@ -156,7 +194,6 @@ class AutomationBot:
             
             self.logger.info("Forcefully clicking 'Continue' button.")
             
-            # Click and wait for the navigation that should follow
             async with page.expect_navigation(wait_until="domcontentloaded", timeout=15000):
                 await continue_button.click(force=True)
             
@@ -203,17 +240,13 @@ class AutomationBot:
         }
 
         self.browser = await playwright.chromium.launch(**launch_args)
-        self.context = await self.browser.new_context(
-            **device,
-            java_script_enabled=True,
-            bypass_csp=True
-        )
+        self.context = await self.browser.new_context(**device, java_script_enabled=True, bypass_csp=True)
         self.page = await self.context.new_page()
+        await self._configure_network_blocker(self.page)
 
         try:
             self.logger.info(f"🚀 Starting automation at: {START_SITE}")
             await self.page.goto(START_SITE, wait_until="domcontentloaded", timeout=60000)
-            await self.page.wait_for_load_state("networkidle")
 
             await self._open_random_download_post(self.page)
             
@@ -240,13 +273,11 @@ class AutomationBot:
                 
                 action_taken = False
                 
-                # We search both the main page and all of its iframes
                 search_contexts = [self.page] + self.page.frames
                 self.logger.info(f"Searching for actions on page and {len(search_contexts) - 1} iframe(s).")
 
                 for search_context in search_contexts:
                     try:
-                        # More robust selectors to find the target buttons
                         dwd_selector = "button:text-matches('download', 'i'), a:text-matches('download', 'i')"
                         verify_selector = "button:text-matches('verify', 'i')"
                         continue_selector = "button:text-matches('continue', 'i')"
@@ -275,14 +306,13 @@ class AutomationBot:
                             break
 
                     except Exception:
-                        # This is expected if the element is not in the current frame
                         continue
                     
                     if action_taken:
-                        break # Exit the frame search loop once an action is taken
+                        break
 
                 if action_taken:
-                    stuck_iterations = 0 # Reset stuck counter if we made progress
+                    stuck_iterations = 0
                 else:
                     stuck_iterations += 1
                     self.logger.info(f"No actionable elements found. Stuck count: {stuck_iterations}")
@@ -310,22 +340,3 @@ class AutomationBot:
             self.logger.info("Browser cleanup.")
             if self.browser:
                 await self.browser.close()
-
-async def main():
-    """Initializes and runs all automation bots concurrently."""
-    async with async_playwright() as playwright:
-        tasks = []
-        active_proxies = proxies if USE_PROXY else [None] * MAX_CONCURRENT_INSTANCES
-
-        for i in range(min(MAX_CONCURRENT_INSTANCES, len(active_proxies))):
-            proxy = active_proxies[i] if USE_PROXY else None
-            bot = AutomationBot(bot_id=i+1, proxy=proxy)
-            tasks.append(bot.run_automation_flow(playwright))
-        
-        await asyncio.gather(*tasks)
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n🛑 Program interrupted by user.")
