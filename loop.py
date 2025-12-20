@@ -141,15 +141,16 @@ class AutomationBot:
         forcefully clicking a sequence of buttons.
         """
         try:
-            self.logger.info("Waiting for 'Verify' button (#btn6)...")
+            self.logger.info("Waiting for 'Verify' button (#btn6) to be attached...")
             verify_button = page.locator("#btn6")
-            await verify_button.wait_for(state="visible", timeout=20000)
+            await verify_button.wait_for(state="attached", timeout=20000)
             
-            self.logger.info("Forcefully clicking 'Verify' button.")
-            await verify_button.click(force=True)
+            self.logger.info("Forcefully triggering 'Verify' action via JavaScript.")
+            # This calls the function associated with the button's onclick event, bypassing visibility checks.
+            await page.evaluate("nextbtn()")
             await self._human_like_delay(500, 1000)
 
-            self.logger.info("Waiting for 'Continue' button (#btn7)...")
+            self.logger.info("Waiting for 'Continue' button (#btn7) to become visible...")
             continue_button = page.locator("#btn7")
             await continue_button.wait_for(state="visible", timeout=20000)
             
@@ -162,7 +163,7 @@ class AutomationBot:
             self.logger.info(f"Navigation after Continue click successful. New URL: {page.url}")
 
         except Exception as e:
-            self.logger.error(f"❌ Error during shortener handling: {e}")
+            self.logger.error(f"❌ Error during shortener handling: {e}", exc_info=True)
             await self._take_screenshot(page, "shortener_error")
         
         return page
