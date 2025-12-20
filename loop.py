@@ -127,6 +127,7 @@ async def click_random_dwd(page, context):
     )
 
     if not buttons:
+        print(">>> NO DWD BUTTONS FOUND")
         return page
 
     btn = random.choice(buttons)
@@ -195,6 +196,8 @@ async def click_verify(page):
         await page.wait_for_timeout(random.randint(500, 1500))
         print(">>> VERIFY CLICKED")
         log.info("✅ VERIFY CLICKED")
+    else:
+        print(">>> NO VERIFY BUTTON FOUND")
 
 # ================= CONTINUE =================
 async def click_continue(page, context):
@@ -206,6 +209,7 @@ async def click_continue(page, context):
         "xpath=//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'continue')]"
     )
     if not btn or not await visible(page, btn):
+        print(">>> NO CONTINUE BUTTON FOUND")
         return page
 
     continue_done = True
@@ -239,6 +243,7 @@ async def click_get_link(page, context):
 
     btn = await page.query_selector("a.get-link")
     if not btn or not await visible(page, btn):
+        print(">>> NO GET LINK FOUND")
         return page
 
     getlink_done = True
@@ -290,12 +295,18 @@ async def watcher(page, context):
         if not await handle_url(page):
             break
 
+        print(">>> REMOVING OVERLAY")
         await remove_overlay(page)
+        print(">>> CHECKING DWD")
         page = await click_random_dwd(page, context)
+        print(">>> CHECKING VERIFY")
         await click_verify(page)
+        print(">>> CHECKING CONTINUE")
         page = await click_continue(page, context)
+        print(">>> CHECKING GET LINK")
         page = await click_get_link(page, context)
 
+        print(">>> WAITING...")
         await page.wait_for_timeout(random.randint(1000, 3000))
 
 # ================= MAIN =================
