@@ -7,7 +7,8 @@ const WAIT_AFTER_WEBDB = 5000;
 const ALLOWED_DOMAINS = [
   'yomovies.delivery',
   'arolinks.com',
-  'webdb.store'
+  'webdb.store',
+  'readnews18.com'
 ];
 
 let RUNNING = true;
