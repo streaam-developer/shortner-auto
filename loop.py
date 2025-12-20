@@ -337,7 +337,7 @@ def run_async():
     asyncio.run(run())
 
 if __name__ == "__main__":
-    num_threads = 3  # Adjust number of concurrent instances
+    num_threads = 1  # Adjust number of concurrent instances
     threads = []
     for i in range(num_threads):
         t = threading.Thread(target=run_async)
