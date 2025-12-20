@@ -87,14 +87,10 @@ async def remove_overlay(page):
         pass
 
 async def visible(page, el):
-    return await page.evaluate("""
-        el => {
-            if (!el) return false;
-            const r = el.getBoundingClientRect();
-            return r.width > 0 && r.height > 0 &&
-                   getComputedStyle(el).display !== 'none';
-        }
-    """, el)
+    try:
+        return await el.is_visible()
+    except:
+        return False
 
 # ================= RANDOM POST =================
 async def open_random_download_post(page):
@@ -109,6 +105,7 @@ async def open_random_download_post(page):
 
     target = random.choice(links)
     await page.goto(target, wait_until="domcontentloaded")
+    await page.wait_for_load_state("networkidle")
 
     print(f">>> RANDOM POST OPENED: {target}")
     log.info(f"🎯 Random post selected: {target}")
@@ -130,17 +127,7 @@ async def click_random_dwd(page, context):
 
     btn = random.choice(buttons)
 
-    # 🔎 Real visibility check
-    visible = await page.evaluate("""
-        el => {
-            const r = el.getBoundingClientRect();
-            return r.width > 0 && r.height > 0 &&
-                   getComputedStyle(el).display !== 'none' &&
-                   getComputedStyle(el).visibility !== 'hidden';
-        }
-    """, btn)
-
-    if not visible:
+    if not await btn.is_visible():
         return page
 
     dwd_done = True
@@ -162,6 +149,7 @@ async def click_random_dwd(page, context):
             pass
         new_page = await p.value
         await new_page.wait_for_load_state("domcontentloaded")
+        await new_page.wait_for_load_state("networkidle")
 
         print(f"🌍 DWD NEW TAB: {new_page.url}")
         log.info(f"🌍 DWD new tab: {new_page.url}")
@@ -177,6 +165,7 @@ async def click_random_dwd(page, context):
         # SAME TAB FALLBACK
         # ======================
         await page.wait_for_load_state("domcontentloaded")
+        await page.wait_for_load_state("networkidle")
 
         print(f"🌍 DWD SAME TAB: {page.url}")
         log.info(f"🌍 DWD same tab: {page.url}")
@@ -227,11 +216,13 @@ async def click_continue(page, context):
             pass
         new_page = await p.value
         await new_page.wait_for_load_state("domcontentloaded")
+        await new_page.wait_for_load_state("networkidle")
         print(f"🌍 CONTINUE NEW TAB: {new_page.url}")
         log.info(f"🌍 Continue new tab: {new_page.url}")
         return new_page
     except:
         await page.wait_for_load_state("domcontentloaded")
+        await page.wait_for_load_state("networkidle")
         print(f"🌍 CONTINUE SAME TAB: {page.url}")
         log.info(f"🌍 Continue same tab: {page.url}")
         return page
@@ -258,11 +249,13 @@ async def click_get_link(page, context):
             pass
         new_page = await p.value
         await new_page.wait_for_load_state("domcontentloaded")
+        await new_page.wait_for_load_state("networkidle")
         print(f"🌍 FINAL TAB: {new_page.url}")
         log.info(f"🌍 Final tab: {new_page.url}")
         return new_page
     except:
         await page.wait_for_load_state("domcontentloaded")
+        await page.wait_for_load_state("networkidle")
         print(f"🌍 FINAL SAME TAB: {page.url}")
         log.info(f"🌍 Final same tab: {page.url}")
         return page
@@ -328,6 +321,7 @@ async def run():
         page = await context.new_page()
 
         await page.goto(START_SITE, wait_until="domcontentloaded")
+        await page.wait_for_load_state("networkidle")
         await open_random_download_post(page)
         await watcher(page, context)
 
