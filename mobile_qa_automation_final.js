@@ -87,6 +87,10 @@ async function safeClick(page, selector, label, force = false) {
       b.classList.remove('disabled');
     });
 
+    // Wait for potential JS countdown to update the href
+    log('Button forcibly enabled, waiting 2s for JS to update link...');
+    await sleep(2000);
+
     await el.scrollIntoViewIfNeeded();
     await randomMouseMove(page);
 
