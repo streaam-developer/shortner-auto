@@ -58,11 +58,15 @@ SCREENSHOT_DIR = "screenshots"
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
 async def take_screenshot(page, prefix="dwd"):
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = f"{SCREENSHOT_DIR}/{prefix}_{ts}.png"
-    await page.screenshot(path=path, full_page=True)
-    print(f"📸 SCREENSHOT SAVED: {path}")
-    log.info(f"📸 Screenshot saved: {path}")
+    try:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = f"{SCREENSHOT_DIR}/{prefix}_{ts}.png"
+        await page.screenshot(path=path, full_page=True)
+        print(f"📸 SCREENSHOT SAVED: {path}")
+        log.info(f"📸 Screenshot saved: {path}")
+    except Exception as e:
+        print(f"📸 SCREENSHOT FAILED: {e}")
+        log.error(f"📸 Screenshot failed: {e}")
 
 # ================= STATE =================
 current_url = None
@@ -154,8 +158,8 @@ async def click_random_dwd(page, context):
         print(f"🌍 DWD NEW TAB: {new_page.url}")
         log.info(f"🌍 DWD new tab: {new_page.url}")
 
-        # ⏱ wait 5 sec + screenshot
-        await new_page.wait_for_timeout(5000)
+        # ⏱ wait + screenshot
+        await new_page.wait_for_timeout(random.randint(2000, 4000))
         await take_screenshot(new_page, "dwd")
 
         return new_page
