@@ -145,9 +145,9 @@ class AutomationBot:
             verify_button = page.locator("#btn6")
             await verify_button.wait_for(state="attached", timeout=20000)
             
-            self.logger.info("Forcefully triggering 'Verify' action via JavaScript.")
-            # This calls the function associated with the button's onclick event, bypassing visibility checks.
-            await page.evaluate("nextbtn()")
+            self.logger.info("Forcefully clicking attached 'Verify' button, ignoring visibility.")
+            # force=True bypasses the actionability checks; we don't need to wait for visibility.
+            await verify_button.click(force=True)
             await self._human_like_delay(500, 1000)
 
             self.logger.info("Waiting for 'Continue' button (#btn7) to become visible...")
