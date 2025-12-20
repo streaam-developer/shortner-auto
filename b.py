@@ -25,7 +25,7 @@ logging.basicConfig(
 log = logging.getLogger("AUTO")
 
 # =========================
-# SCREENSHOT SETUP
+# SCREENSHOT
 # =========================
 SCREENSHOT_DIR = "screenshots"
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
@@ -40,12 +40,12 @@ async def take_screenshot(page, prefix="continue"):
 # =========================
 # GLOBAL STATE
 # =========================
-clicked_buttons = set()
-continue_clicked = False
 current_url = None
+continue_clicked = False
+verify_clicked = False
 
 # =========================
-# REMOVE COOKIE / OVERLAY
+# REMOVE OVERLAY
 # =========================
 async def remove_consent(page):
     try:
@@ -62,14 +62,14 @@ async def remove_consent(page):
         pass
 
 # =========================
-# SAFE VERIFY CLICK
+# CLICK VERIFY
 # =========================
 async def click_verify(page):
-    selector = "button#btn6.ce-btn.ce-blue"
-    if selector in clicked_buttons:
+    global verify_clicked
+    if verify_clicked:
         return
 
-    btn = await page.query_selector(selector)
+    btn = await page.query_selector("button#btn6")
     if not btn:
         return
 
@@ -83,23 +83,32 @@ async def click_verify(page):
     if not visible:
         return
 
+    verify_clicked = True
     await page.evaluate("el => el.click()", btn)
-    clicked_buttons.add(selector)
 
     print(">>> BUTTON CLICKED: VERIFY")
     log.info("✅ CLICKED VERIFY")
 
 # =========================
-# FORCE CONTINUE CLICK (NO VISIBILITY ERRORS)
+# CLICK CONTINUE (FIXED)
 # =========================
-async def click_continue_force(page, context):
+async def click_continue(page, context):
     global continue_clicked
-
     if continue_clicked:
         return page
 
-    selector = "button.ce-btn.ce-blue"
-    btn = await page.query_selector(selector)
+    # 🔥 STRICT TEXT MATCH (case-insensitive)
+    btn = await page.query_selector("""
+        xpath=//button[
+            contains(
+                translate(normalize-space(.),
+                'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+                'abcdefghijklmnopqrstuvwxyz'),
+                'continue'
+            )
+        ]
+    """)
+
     if not btn:
         return page
 
@@ -115,13 +124,13 @@ async def click_continue_force(page, context):
 
     continue_clicked = True
 
-    print(">>> CLICKING CONTINUE (JS force)")
-    log.info(">>> Clicking CONTINUE (JS force)")
+    print(">>> CLICKING CONTINUE")
+    log.info(">>> Clicking CONTINUE")
 
-    # JS click (bypasses Playwright visibility rules)
+    # JS click (works even inside <a>)
     await page.evaluate("el => el.click()", btn)
 
-    # Try new tab first
+    # NEW TAB OR SAME TAB
     try:
         async with context.expect_page(timeout=6000) as p:
             pass
@@ -132,19 +141,18 @@ async def click_continue_force(page, context):
         log.info(f"🌍 New tab opened: {new_page.url}")
 
         await new_page.wait_for_timeout(5000)
-        await take_screenshot(new_page, "continue")
+        await take_screenshot(new_page)
 
         return new_page
 
     except:
-        # Same tab navigation
         await page.wait_for_load_state("domcontentloaded")
 
         print(f"🌍 SAME TAB URL: {page.url}")
         log.info(f"🌍 Same tab URL: {page.url}")
 
         await page.wait_for_timeout(5000)
-        await take_screenshot(page, "continue")
+        await take_screenshot(page)
 
         return page
 
@@ -152,22 +160,22 @@ async def click_continue_force(page, context):
 # URL CHANGE HANDLER
 # =========================
 async def handle_url_change(page):
-    global current_url, clicked_buttons, continue_clicked
+    global current_url, continue_clicked, verify_clicked
 
     if page.url != current_url:
         current_url = page.url
-        clicked_buttons.clear()
         continue_clicked = False
+        verify_clicked = False
 
         await page.wait_for_load_state("domcontentloaded")
 
-        print(f"\n🌍 NEW PAGE OPENED:")
-        print(f"➡️  {page.url}\n")
+        print(f"\n🌍 NEW PAGE:")
+        print(f"➡️ {page.url}\n")
         log.info(f"🌍 New URL loaded: {page.url}")
 
         if "webdb.store" in page.url:
-            print("🛑 webdb.store detected, closing session")
-            log.info("🛑 webdb.store detected → exit")
+            print("🛑 webdb.store detected — STOP")
+            log.info("🛑 webdb.store detected")
             return False
 
     return True
@@ -175,11 +183,11 @@ async def handle_url_change(page):
 # =========================
 # MAIN LOOP
 # =========================
-async def watch_and_click(page, context):
+async def watch(page, context):
     global current_url
     current_url = page.url
 
-    log.info("🔁 Advanced watcher started")
+    log.info("🔁 Watcher started")
 
     while True:
         if not await handle_url_change(page):
@@ -187,12 +195,8 @@ async def watch_and_click(page, context):
 
         await remove_consent(page)
 
-        try:
-            await click_verify(page)
-            page = await click_continue_force(page, context)
-
-        except Exception as e:
-            log.error(f"⚠️ Loop error: {e}")
+        await click_verify(page)
+        page = await click_continue(page, context)
 
         await page.wait_for_timeout(CHECK_INTERVAL)
 
@@ -212,7 +216,7 @@ async def run():
         log.info(f"🌍 Opening {TARGET_URL}")
         await page.goto(TARGET_URL, wait_until="domcontentloaded")
 
-        await watch_and_click(page, context)
+        await watch(page, context)
 
         await browser.close()
 
