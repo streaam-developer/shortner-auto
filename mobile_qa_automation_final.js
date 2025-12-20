@@ -26,43 +26,53 @@ process.on('SIGINT', () => {
   RUNNING = false;
 });
 
-// ================= SAFE CLICK =================
+// ================= SAFE CLICK (NAVIGATION-SAFE) =================
 
 async function safeClick(page, selector, label) {
-  const el = await page.$(selector);
-  if (!el) return false;
-
-  // Disable iframe ads (Google Ads etc.)
-  await page.evaluate(() => {
-    document.querySelectorAll('iframe').forEach(i => {
-      i.style.pointerEvents = 'none';
-      i.style.display = 'none';
-    });
-  });
-
   try {
+    const el = await page.$(selector);
+    if (!el) return false;
+
+    // Disable iframe ads (Google Ads, etc.)
+    await page.evaluate(() => {
+      document.querySelectorAll('iframe').forEach(i => {
+        i.style.pointerEvents = 'none';
+        i.style.display = 'none';
+      });
+    });
+
     await el.scrollIntoViewIfNeeded();
 
     try {
-      await el.click({ timeout: 2000 });
+      // Race click with navigation (redirect-safe)
+      await Promise.race([
+        el.click({ timeout: 2000 }),
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3000 }).catch(() => {})
+      ]);
     } catch {
-      // JS fallback (when ads overlay blocks click)
+      // JS fallback click
       await page.evaluate(e => e.click(), el);
     }
 
     log(`${label} clicked`);
     return true;
-  } catch {
+
+  } catch (err) {
+    // 🔥 IMPORTANT: ignore navigation context destroy
+    if (err.message && err.message.includes('Execution context was destroyed')) {
+      log(`${label} click caused navigation (safe)`);
+      return true;
+    }
     return false;
   }
 }
 
-// ================= POST PICKER =================
+// ================= POST PICKER (EXACT SELECTOR) =================
 
 async function pickRandomPost(page) {
   await page.waitForLoadState('domcontentloaded');
 
-  // EXACT selector from your HTML
+  // EXACT selector from your provided HTML
   const posts = await page.$$('article.post h3.entry-title a');
   if (!posts.length) throw new Error('No posts found');
 
@@ -114,51 +124,62 @@ async function runSession() {
     await newTab.waitForLoadState('domcontentloaded');
     log('DWD clicked → new tab');
 
-    // ================= MAIN 2-SEC LOOP =================
+    // ================= MAIN 2-SEC POLLING LOOP =================
     while (RUNNING) {
-      const url = newTab.url();
+      try {
+        const url = newTab.url();
 
-      // ✅ ONLY FINAL EXIT CONDITION
-      if (url.includes('webdb.store')) {
-        log('webdb.store reached');
-        await sleep(WAIT_AFTER_WEBDB);
-        break;
-      }
+        // ✅ ONLY FINAL EXIT CONDITION
+        if (url.includes('webdb.store')) {
+          log('webdb.store reached');
+          await sleep(WAIT_AFTER_WEBDB);
+          break;
+        }
 
-      // 🔗 arolinks → Get Link
-      if (url.includes('arolinks.com')) {
-        if (await safeClick(newTab, 'button:has-text("Get Link")', 'Get Link')) {
+        // 🔗 arolinks → Get Link
+        if (url.includes('arolinks.com')) {
+          if (await safeClick(newTab, 'button:has-text("Get Link")', 'Get Link')) {
+            await sleep(POLL_INTERVAL);
+            continue;
+          }
+        }
+
+        // ✅ Verify (ANY DOMAIN)
+        if (await safeClick(
+          newTab,
+          'button.ce-btn.ce-blue:has-text("Verify")',
+          'Verify'
+        )) {
           await sleep(POLL_INTERVAL);
           continue;
         }
-      }
 
-      // ✅ Verify (ANY DOMAIN)
-      if (await safeClick(
-        newTab,
-        'button.ce-btn.ce-blue:has-text("Verify")',
-        'Verify'
-      )) {
+        // ➡ Continue (ANY DOMAIN)
+        if (await safeClick(
+          newTab,
+          'a#btn7 button.ce-btn.ce-blue:has-text("Continue")',
+          'Continue'
+        )) {
+          await sleep(POLL_INTERVAL);
+          continue;
+        }
+
+        // ⏳ Nothing yet
         await sleep(POLL_INTERVAL);
-        continue;
-      }
 
-      // ➡ Continue (ANY DOMAIN)
-      if (await safeClick(
-        newTab,
-        'a#btn7 button.ce-btn.ce-blue:has-text("Continue")',
-        'Continue'
-      )) {
-        await sleep(POLL_INTERVAL);
-        continue;
+      } catch (err) {
+        // 🔥 CRITICAL: ignore navigation race errors
+        if (err.message && err.message.includes('Execution context was destroyed')) {
+          log('Navigation happened, continuing loop');
+          await sleep(1000);
+          continue;
+        }
+        throw err; // real error
       }
-
-      // ⏳ Nothing found → wait 2 sec
-      await sleep(POLL_INTERVAL);
     }
 
   } catch (err) {
-    log(`❌ ERROR: ${err.message}`);
+    log(`❌ REAL ERROR: ${err.message}`);
     try {
       await page.screenshot({ path: `fatal-${Date.now()}.png` });
     } catch {}
@@ -172,7 +193,7 @@ async function runSession() {
 // ================= RUNNER =================
 
 (async () => {
-  log('🚀 Automation started (2-sec polling, no domain block)');
+  log('🚀 Automation started (2-sec polling, navigation-safe)');
   while (RUNNING) {
     await runSession();
   }
