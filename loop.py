@@ -17,7 +17,7 @@ user_agents = [
 # ================= CONFIG =================
 START_SITE = "https://yomovies.delivery"
 CHECK_INTERVAL = 2000
-HEADLESS = False
+HEADLESS = True
 
 USE_PROXY = False
 PROXY = {
