@@ -59,7 +59,7 @@ async function randomScroll(page) {
 async function safeClick(page, selector, label, force = false) {
   try {
     const el = page.locator(selector).first();
-    await el.waitFor({ timeout: 5000 }).catch(() => {});
+    await el.waitFor({ timeout: 2000 }).catch(() => {});
     if (!(await el.isVisible())) {
       log(`${label} element not visible after 5s wait`);
       return false;
@@ -207,7 +207,7 @@ async function runSession() {
             context.waitForEvent('page').catch(() => null),
             safeClick(
               activePage,
-              'button:has-text("Get Link")',
+              'a:has(button:has-text("Get Link"))',
               'Get Link',
               true // FORCE
             )
