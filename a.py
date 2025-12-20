@@ -6,6 +6,9 @@ TARGET_URL = "https://arolinks.com/dZJjx"
 CHECK_INTERVAL = 2000
 HEADLESS = True
 
+# =========================
+# LOGGING
+# =========================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -17,9 +20,15 @@ logging.basicConfig(
 log = logging.getLogger("AUTO")
 
 # =========================
-# STATE (ANTI DOUBLE CLICK)
+# BUTTON REGISTRY
 # =========================
+BUTTONS = [
+    ("VERIFY", "button#btn6.ce-btn.ce-blue"),
+    ("CONTINUE", "a#btn7 button.ce-btn.ce-blue"),
+]
+
 clicked_buttons = set()
+current_url = None
 
 # =========================
 # REMOVE OVERLAY
@@ -39,13 +48,13 @@ async def remove_consent(page):
         pass
 
 # =========================
-# SAFE CLICK (ONCE)
+# SAFE CLICK (SINGLE)
 # =========================
 async def safe_click(page, element, name, selector):
     global clicked_buttons
 
     if selector in clicked_buttons:
-        return  # already clicked, skip
+        return
 
     try:
         await element.click(force=True)
@@ -57,7 +66,7 @@ async def safe_click(page, element, name, selector):
     print(f">>> BUTTON CLICKED: {name}")
     log.info(f"✅ CLICKED {name}")
 
-    # ⏳ WAIT until button is gone / disabled
+    # wait until element hides / disables
     try:
         await page.wait_for_function(
             """(sel) => {
@@ -67,31 +76,53 @@ async def safe_click(page, element, name, selector):
             selector,
             timeout=10000
         )
-        log.info(f"🔒 {name} button locked (hidden/disabled)")
     except:
         pass
 
 # =========================
-# BUTTON LOOP
+# URL CHANGE HANDLER
+# =========================
+async def handle_url_change(page):
+    global current_url, clicked_buttons
+
+    new_url = page.url
+    if new_url != current_url:
+        current_url = new_url
+        clicked_buttons.clear()  # reset for new page
+
+        print(f"\n🌍 NEW PAGE OPENED:")
+        print(f"➡️  {new_url}\n")
+
+        log.info(f"🌍 New URL loaded: {new_url}")
+
+        # hard stop condition
+        if "webdb.store" in new_url:
+            print("🛑 webdb.store detected, closing session")
+            log.info("🛑 webdb.store detected → exit")
+            return False
+
+    return True
+
+# =========================
+# MAIN LOOP
 # =========================
 async def watch_and_click(page):
-    log.info("🔁 Infinite button watcher started (safe mode)")
+    global current_url
+    current_url = page.url
+
+    log.info("🔁 Advanced infinite watcher started")
 
     while True:
+        if not await handle_url_change(page):
+            break
+
         await remove_consent(page)
 
         try:
-            # VERIFY
-            verify_sel = "button#btn6.ce-btn.ce-blue"
-            verify = await page.query_selector(verify_sel)
-            if verify and await verify.is_visible():
-                await safe_click(page, verify, "VERIFY", verify_sel)
-
-            # CONTINUE
-            cont_sel = "a#btn7 button.ce-btn.ce-blue"
-            cont = await page.query_selector(cont_sel)
-            if cont and await cont.is_visible():
-                await safe_click(page, cont, "CONTINUE", cont_sel)
+            for name, selector in BUTTONS:
+                el = await page.query_selector(selector)
+                if el and await el.is_visible():
+                    await safe_click(page, el, name, selector)
 
         except Exception as e:
             log.error(f"⚠️ Loop error: {e}")
@@ -111,20 +142,18 @@ async def run():
         context = await browser.new_context()
         page = await context.new_page()
 
-        # DOMAIN DETECTOR
-        async def on_nav(frame):
-            if "webdb.store" in frame.url:
-                print(">>> webdb.store detected, closing session")
-                log.info("🌐 webdb.store opened → session closed")
-                await context.close()
-                await browser.close()
-
-        page.on("framenavigated", on_nav)
+        # new tab handler
+        context.on(
+            "page",
+            lambda p: asyncio.create_task(watch_and_click(p))
+        )
 
         log.info(f"🌍 Opening {TARGET_URL}")
         await page.goto(TARGET_URL, wait_until="domcontentloaded")
 
         await watch_and_click(page)
+
+        await browser.close()
 
 if __name__ == "__main__":
     asyncio.run(run())
