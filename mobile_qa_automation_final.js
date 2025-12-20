@@ -5,11 +5,24 @@ const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 2000;
 
+// ================= PROXY CONFIG =================
+const PROXY_ENABLED = false;
+
+const PROXIES = [
+  // format: http://user:pass@ip:port
+  // 'http://username:password@127.0.0.1:8080'
+];
+
+function getRandomProxy() {
+  if (!PROXY_ENABLED || !PROXIES.length) return null;
+  return PROXIES[Math.floor(Math.random() * PROXIES.length)];
+}
+
+// ================= GLOBAL =================
 let RUNNING = true;
 let SESSION_COUNT = 0;
 
 // ================= UTIL =================
-
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -22,18 +35,41 @@ function log(msg) {
 
 // Graceful stop
 process.on('SIGINT', () => {
-  console.log('\n🛑 Stopping after current session...');
+  console.log('\n🛑 Graceful shutdown requested...');
   RUNNING = false;
 });
 
-// ================= SAFE CLICK (NAVIGATION-SAFE) =================
+// ================= HUMAN BEHAVIOR =================
+async function randomMouseMove(page) {
+  const width = 360;
+  const height = 740;
+  const moves = 3 + Math.floor(Math.random() * 5);
 
-async function safeClick(page, selector, label) {
+  for (let i = 0; i < moves; i++) {
+    await page.mouse.move(
+      Math.random() * width,
+      Math.random() * height,
+      { steps: 5 + Math.floor(Math.random() * 10) }
+    );
+    await sleep(300 + Math.random() * 500);
+  }
+}
+
+async function randomScroll(page) {
+  const times = 1 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < times; i++) {
+    await page.evaluate(y => window.scrollBy(0, y), 200 + Math.random() * 400);
+    await sleep(500 + Math.random() * 800);
+  }
+}
+
+// ================= SAFE CLICK (FORCE + NAV SAFE) =================
+async function safeClick(page, selector, label, force = false) {
   try {
     const el = await page.$(selector);
     if (!el) return false;
 
-    // Disable iframe ads (Google Ads, etc.)
+    // Disable iframe ads
     await page.evaluate(() => {
       document.querySelectorAll('iframe').forEach(i => {
         i.style.pointerEvents = 'none';
@@ -42,37 +78,37 @@ async function safeClick(page, selector, label) {
     });
 
     await el.scrollIntoViewIfNeeded();
+    await randomMouseMove(page);
 
     try {
-      // Race click with navigation (redirect-safe)
-      await Promise.race([
-        el.click({ timeout: 2000 }),
-        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3000 }).catch(() => {})
-      ]);
+      if (force) {
+        await el.click({ force: true, timeout: 2000 });
+      } else {
+        await Promise.race([
+          el.click({ timeout: 2000 }),
+          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3000 }).catch(() => {})
+        ]);
+      }
     } catch {
-      // JS fallback click
+      // JS fallback
       await page.evaluate(e => e.click(), el);
     }
 
-    log(`${label} clicked`);
+    log(`${label} clicked${force ? ' (force)' : ''}`);
     return true;
 
   } catch (err) {
-    // 🔥 IMPORTANT: ignore navigation context destroy
     if (err.message && err.message.includes('Execution context was destroyed')) {
-      log(`${label} click caused navigation (safe)`);
+      log(`${label} caused navigation (safe)`);
       return true;
     }
     return false;
   }
 }
 
-// ================= POST PICKER (EXACT SELECTOR) =================
-
+// ================= POST PICKER =================
 async function pickRandomPost(page) {
   await page.waitForLoadState('domcontentloaded');
-
-  // EXACT selector from your provided HTML
   const posts = await page.$$('article.post h3.entry-title a');
   if (!posts.length) throw new Error('No posts found');
 
@@ -81,9 +117,23 @@ async function pickRandomPost(page) {
 }
 
 // ================= SESSION =================
-
 async function runSession() {
-  const browser = await chromium.launch({ headless: false });
+  const proxy = getRandomProxy();
+
+  const browser = await chromium.launch({
+    headless: false,
+    proxy: proxy
+      ? {
+          server: proxy.split('@').pop(),
+          username: proxy.includes('@') ? proxy.split('//')[1].split(':')[0] : undefined,
+          password: proxy.includes('@')
+            ? proxy.split('//')[1].split(':')[1].split('@')[0]
+            : undefined
+        }
+      : undefined
+  });
+
+  if (proxy) log(`Using proxy: ${proxy}`);
 
   const context = await browser.newContext({
     viewport: { width: 360, height: 740 },
@@ -99,21 +149,21 @@ async function runSession() {
     SESSION_COUNT++;
     log(`▶ SESSION ${SESSION_COUNT} START`);
 
-    // 1️⃣ Home
+    // Home
     await page.goto(HOME_URL, { waitUntil: 'domcontentloaded' });
     log('Home opened');
-    await sleep(2000);
+    await randomScroll(page);
 
-    // 2️⃣ Random post
+    // Random post
     const post = await pickRandomPost(page);
     await post.click();
     await page.waitForLoadState('domcontentloaded');
     log('Random post opened');
-    await sleep(2000);
+    await randomScroll(page);
 
-    // 3️⃣ DWD button
+    // DWD button
     const dwdButtons = await page.$$('.dwd-button');
-    if (!dwdButtons.length) throw new Error('No dwd-button');
+    if (!dwdButtons.length) throw new Error('No dwd-button found');
 
     const dwd = dwdButtons[Math.floor(Math.random() * dwdButtons.length)];
     const [newTab] = await Promise.all([
@@ -124,19 +174,21 @@ async function runSession() {
     await newTab.waitForLoadState('domcontentloaded');
     log('DWD clicked → new tab');
 
-    // ================= MAIN 2-SEC POLLING LOOP =================
+    // ================= MAIN 2-SEC LOOP =================
     while (RUNNING) {
       try {
         const url = newTab.url();
 
-        // ✅ ONLY FINAL EXIT CONDITION
+        // FINAL EXIT
         if (url.includes('webdb.store')) {
           log('webdb.store reached');
           await sleep(WAIT_AFTER_WEBDB);
           break;
         }
 
-        // 🔗 arolinks → Get Link
+        await randomMouseMove(newTab);
+
+        // Get Link
         if (url.includes('arolinks.com')) {
           if (await safeClick(newTab, 'button:has-text("Get Link")', 'Get Link')) {
             await sleep(POLL_INTERVAL);
@@ -144,7 +196,7 @@ async function runSession() {
           }
         }
 
-        // ✅ Verify (ANY DOMAIN)
+        // Verify
         if (await safeClick(
           newTab,
           'button.ce-btn.ce-blue:has-text("Verify")',
@@ -154,7 +206,7 @@ async function runSession() {
           continue;
         }
 
-        // ➡ Continue (ANY DOMAIN)
+        // Normal Continue
         if (await safeClick(
           newTab,
           'a#btn7 button.ce-btn.ce-blue:has-text("Continue")',
@@ -164,17 +216,26 @@ async function runSession() {
           continue;
         }
 
-        // ⏳ Nothing yet
+        // 🔥 FORCE Continue (id="cross-snp2")
+        if (await safeClick(
+          newTab,
+          'button#cross-snp2.ce-btn.ce-blue',
+          'Force Continue',
+          true
+        )) {
+          await sleep(POLL_INTERVAL);
+          continue;
+        }
+
         await sleep(POLL_INTERVAL);
 
       } catch (err) {
-        // 🔥 CRITICAL: ignore navigation race errors
         if (err.message && err.message.includes('Execution context was destroyed')) {
-          log('Navigation happened, continuing loop');
+          log('Navigation detected, continuing loop');
           await sleep(1000);
           continue;
         }
-        throw err; // real error
+        throw err;
       }
     }
 
@@ -191,9 +252,8 @@ async function runSession() {
 }
 
 // ================= RUNNER =================
-
 (async () => {
-  log('🚀 Automation started (2-sec polling, navigation-safe)');
+  log('🚀 Automation started (proxy + force click + human behavior)');
   while (RUNNING) {
     await runSession();
   }
