@@ -1,13 +1,14 @@
 import asyncio
 import logging
+import random
 from playwright.async_api import async_playwright
 
 # ================= CONFIG =================
 START_SITE = "https://yomovies.delivery"
 CHECK_INTERVAL = 2000
 HEADLESS = True
-USE_PROXY = False   # 👉 True to enable proxy
 
+USE_PROXY = False
 PROXY = {
     "server": "http://IP:PORT",
     "username": "USER",
@@ -50,37 +51,54 @@ async def remove_overlay(page):
 async def visible(page, el):
     return await page.evaluate("""
         el => {
+            if (!el) return false;
             const r = el.getBoundingClientRect();
             return r.width > 0 && r.height > 0 &&
                    getComputedStyle(el).display !== 'none';
         }
     """, el)
 
-# ================= STEP 1: PICK POST =================
-async def pick_one_post(page):
-    links = await page.query_selector_all("a[href]")
-    for a in links:
+# ================= STEP 1: RANDOM POST =================
+async def open_random_download_post(page):
+    links = []
+    anchors = await page.query_selector_all("a[href]")
+    for a in anchors:
         href = await a.get_attribute("href")
         if href and "download" in href.lower():
-            await page.goto(href, wait_until="domcontentloaded")
-            log.info(f"🎯 Post selected: {href}")
-            print(f">>> POST OPENED: {href}")
-            return
+            links.append(href)
 
-# ================= STEP 2: CLICK ONE DWD BUTTON =================
-async def click_one_dwd(page):
+    if not links:
+        raise RuntimeError("❌ No download posts found")
+
+    target = random.choice(links)
+    await page.goto(target, wait_until="domcontentloaded")
+
+    print(f">>> RANDOM POST OPENED: {target}")
+    log.info(f"🎯 Random post selected: {target}")
+
+# ================= STEP 2: RANDOM DWD BUTTON =================
+async def click_random_dwd(page):
     global dwd_done
     if dwd_done:
         return
 
-    btns = await page.query_selector_all(".dwd-button")
-    for btn in btns:
-        if await visible(page, btn):
-            dwd_done = True
-            await page.evaluate("el => el.click()", btn)
-            print(">>> DWD BUTTON CLICKED")
-            log.info("➡️ DWD button clicked")
-            return
+    buttons = await page.query_selector_all(".dwd-button")
+    visible_buttons = []
+
+    for b in buttons:
+        if await visible(page, b):
+            visible_buttons.append(b)
+
+    if not visible_buttons:
+        return
+
+    btn = random.choice(visible_buttons)
+    dwd_done = True
+
+    await page.evaluate("el => el.click()", btn)
+
+    print(">>> RANDOM DWD BUTTON CLICKED")
+    log.info("➡️ Random DWD button clicked")
 
 # ================= VERIFY =================
 async def click_verify(page):
@@ -89,7 +107,7 @@ async def click_verify(page):
         return
 
     btn = await page.query_selector(
-        "xpath=//button[contains(., 'Verify')]"
+        "xpath=//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'verify')]"
     )
     if btn and await visible(page, btn):
         verify_done = True
@@ -111,6 +129,7 @@ async def click_continue(page, context):
 
     continue_done = True
     await page.evaluate("el => el.click()", btn)
+
     print(">>> CONTINUE CLICKED")
     log.info("➡️ CONTINUE CLICKED")
 
@@ -119,11 +138,13 @@ async def click_continue(page, context):
             pass
         new_page = await p.value
         await new_page.wait_for_load_state("domcontentloaded")
-        print(f"🌍 NEW TAB: {new_page.url}")
+        print(f"🌍 NEW TAB OPENED: {new_page.url}")
+        log.info(f"🌍 New tab: {new_page.url}")
         return new_page
     except:
         await page.wait_for_load_state("domcontentloaded")
-        print(f"🌍 SAME TAB: {page.url}")
+        print(f"🌍 SAME TAB URL: {page.url}")
+        log.info(f"🌍 Same tab: {page.url}")
         return page
 
 # ================= GET LINK =================
@@ -138,6 +159,7 @@ async def click_get_link(page, context):
 
     getlink_done = True
     await page.evaluate("el => el.click()", btn)
+
     print(">>> GET LINK CLICKED")
     log.info("➡️ GET LINK CLICKED")
 
@@ -147,10 +169,12 @@ async def click_get_link(page, context):
         new_page = await p.value
         await new_page.wait_for_load_state("domcontentloaded")
         print(f"🌍 FINAL TAB: {new_page.url}")
+        log.info(f"🌍 Final tab: {new_page.url}")
         return new_page
     except:
         await page.wait_for_load_state("domcontentloaded")
         print(f"🌍 FINAL SAME TAB: {page.url}")
+        log.info(f"🌍 Final same tab: {page.url}")
         return page
 
 # ================= URL CHANGE =================
@@ -163,11 +187,12 @@ async def handle_url(page):
         continue_done = False
         getlink_done = False
 
-        print(f"\n🌍 PAGE: {page.url}")
-        log.info(f"🌍 Page: {page.url}")
+        print(f"\n🌍 PAGE LOADED: {page.url}")
+        log.info(f"🌍 Page loaded: {page.url}")
 
         if "webdb.store" in page.url:
             print("🛑 webdb.store reached — STOP")
+            log.info("🛑 webdb.store reached")
             return False
 
     return True
@@ -179,7 +204,7 @@ async def watcher(page, context):
             break
 
         await remove_overlay(page)
-        await click_one_dwd(page)
+        await click_random_dwd(page)
         await click_verify(page)
         page = await click_continue(page, context)
         page = await click_get_link(page, context)
@@ -193,7 +218,6 @@ async def run():
             "headless": HEADLESS,
             "args": ["--disable-blink-features=AutomationControlled"]
         }
-
         if USE_PROXY:
             launch_args["proxy"] = PROXY
 
@@ -202,7 +226,7 @@ async def run():
         page = await context.new_page()
 
         await page.goto(START_SITE, wait_until="domcontentloaded")
-        await pick_one_post(page)
+        await open_random_download_post(page)
         await watcher(page, context)
 
         await browser.close()
