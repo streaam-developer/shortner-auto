@@ -5,9 +5,9 @@ from playwright.async_api import async_playwright
 # =========================
 # CONFIG
 # =========================
-TARGET_URL = "https://YOUR_PAGE_LINK"
+TARGET_URL = "https://arolinks.com/dZJjx"
 CHECK_INTERVAL = 2000  # 2 seconds
-HEADLESS = False
+HEADLESS = True
 
 # =========================
 # LOGGING
