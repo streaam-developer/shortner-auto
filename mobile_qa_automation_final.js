@@ -6,7 +6,7 @@ const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 2000;
 
 // ================= PROXY CONFIG =================
-const PROXY_ENABLED = false;
+const PROXY_ENABLED = false; // false to disable
 const PROXIES = [
   // 'http://user:pass@ip:port'
 ];
@@ -24,14 +24,11 @@ let SESSION_COUNT = 0;
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
-
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
   console.log(line);
   fs.appendFileSync('automation.log', line + '\n');
 }
-
-// Graceful stop
 process.on('SIGINT', () => {
   console.log('\n🛑 Graceful shutdown requested...');
   RUNNING = false;
@@ -39,8 +36,7 @@ process.on('SIGINT', () => {
 
 // ================= HUMAN BEHAVIOR =================
 async function randomMouseMove(page) {
-  const width = 360;
-  const height = 740;
+  const width = 360, height = 740;
   const moves = 3 + Math.floor(Math.random() * 5);
   for (let i = 0; i < moves; i++) {
     await page.mouse.move(
@@ -51,7 +47,6 @@ async function randomMouseMove(page) {
     await sleep(300 + Math.random() * 500);
   }
 }
-
 async function randomScroll(page) {
   const times = 1 + Math.floor(Math.random() * 3);
   for (let i = 0; i < times; i++) {
@@ -60,19 +55,34 @@ async function randomScroll(page) {
   }
 }
 
-// ================= SAFE CLICK (FORCE + NAV SAFE) =================
+// ================= SAFE CLICK (AROLINKS FIXED) =================
 async function safeClick(page, selector, label, force = false) {
   try {
     const el = await page.$(selector);
     if (!el) return false;
 
-    // Disable iframe ads
+    // Remove overlays/iframes
     await page.evaluate(() => {
       document.querySelectorAll('iframe').forEach(i => {
         i.style.pointerEvents = 'none';
         i.style.display = 'none';
       });
+      document.querySelectorAll('[style*="pointer-events"]').forEach(n => {
+        n.style.pointerEvents = 'auto';
+      });
     });
+
+    // 🔥 AROLINKS: enable button forcibly (handles disabled/countdown)
+    await page.evaluate((sel) => {
+      const b = document.querySelector(sel);
+      if (!b) return;
+      b.disabled = false;
+      b.removeAttribute('disabled');
+      b.removeAttribute('aria-disabled');
+      b.style.pointerEvents = 'auto';
+      b.style.display = 'block';
+      b.classList.remove('disabled');
+    }, selector);
 
     await el.scrollIntoViewIfNeeded();
     await randomMouseMove(page);
@@ -87,8 +97,16 @@ async function safeClick(page, selector, label, force = false) {
         ]);
       }
     } catch {
-      // JS fallback
-      await page.evaluate(e => e.click(), el);
+      // Hard JS click (works on arolinks)
+      await page.evaluate((sel) => {
+        const e = document.querySelector(sel);
+        if (!e) return;
+        e.dispatchEvent(new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          view: window
+        }));
+      }, selector);
     }
 
     log(`${label} clicked${force ? ' (force)' : ''}`);
@@ -128,7 +146,6 @@ async function runSession() {
         }
       : undefined
   });
-
   if (proxy) log(`Using proxy: ${proxy}`);
 
   const context = await browser.newContext({
@@ -157,16 +174,14 @@ async function runSession() {
     log('Random post opened');
     await randomScroll(page);
 
-    // DWD button
+    // DWD
     const dwdButtons = await page.$$('.dwd-button');
     if (!dwdButtons.length) throw new Error('No dwd-button found');
-
     const dwd = dwdButtons[Math.floor(Math.random() * dwdButtons.length)];
     const [newTab] = await Promise.all([
       context.waitForEvent('page'),
       dwd.click()
     ]);
-
     await newTab.waitForLoadState('domcontentloaded');
     log('DWD clicked → new tab');
 
@@ -186,7 +201,7 @@ async function runSession() {
 
         await randomMouseMove(activePage);
 
-        // 🔥 AROLINKS FORCE GET LINK (handles new tab)
+        // 🔥 AROLINKS GET LINK (dZJjx FIX + NEW TAB)
         if (url.includes('arolinks.com')) {
           const [maybeNewTab] = await Promise.all([
             context.waitForEvent('page').catch(() => null),
@@ -217,7 +232,7 @@ async function runSession() {
           continue;
         }
 
-        // Normal Continue
+        // Continue (normal)
         if (await safeClick(
           activePage,
           'a#btn7 button.ce-btn.ce-blue:has-text("Continue")',
@@ -227,7 +242,7 @@ async function runSession() {
           continue;
         }
 
-        // FORCE Continue (#cross-snp2)
+        // Continue (force)
         if (await safeClick(
           activePage,
           'button#cross-snp2.ce-btn.ce-blue',
@@ -252,9 +267,7 @@ async function runSession() {
 
   } catch (err) {
     log(`❌ REAL ERROR: ${err.message}`);
-    try {
-      await page.screenshot({ path: `fatal-${Date.now()}.png` });
-    } catch {}
+    try { await page.screenshot({ path: `fatal-${Date.now()}.png` }); } catch {}
   } finally {
     await context.close();
     await browser.close();
@@ -264,7 +277,7 @@ async function runSession() {
 
 // ================= RUNNER =================
 (async () => {
-  log('🚀 Automation started (arolinks force Get Link + new-tab handling)');
+  log('🚀 Automation started (arolinks dZJjx fixed)');
   while (RUNNING) {
     await runSession();
   }
