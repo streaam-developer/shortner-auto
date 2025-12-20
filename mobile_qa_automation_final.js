@@ -5,22 +5,10 @@ const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 2000;
 
-// ================= PROXY CONFIG =================
-const PROXY_ENABLED = false; // false to disable
-const PROXIES = [
-  // 'http://user:pass@ip:port'
-];
-
-function getRandomProxy() {
-  if (!PROXY_ENABLED || !PROXIES.length) return null;
-  return PROXIES[Math.floor(Math.random() * PROXIES.length)];
-}
-
 // ================= GLOBAL =================
 let RUNNING = true;
 let SESSION_COUNT = 0;
 
-// ================= UTIL =================
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -29,257 +17,189 @@ function log(msg) {
   console.log(line);
   fs.appendFileSync('automation.log', line + '\n');
 }
-process.on('SIGINT', () => {
-  console.log('\n🛑 Graceful shutdown requested...');
-  RUNNING = false;
-});
+process.on('SIGINT', () => RUNNING = false);
 
-// ================= HUMAN BEHAVIOR =================
+// ================= HUMAN =================
 async function randomMouseMove(page) {
-  const width = 360, height = 740;
-  const moves = 3 + Math.floor(Math.random() * 5);
-  for (let i = 0; i < moves; i++) {
+  for (let i = 0; i < 4; i++) {
     await page.mouse.move(
-      Math.random() * width,
-      Math.random() * height,
-      { steps: 5 + Math.floor(Math.random() * 10) }
+      Math.random() * 360,
+      Math.random() * 740,
+      { steps: 10 }
     );
-    await sleep(300 + Math.random() * 500);
-  }
-}
-async function randomScroll(page) {
-  const times = 1 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < times; i++) {
-    await page.evaluate(y => window.scrollBy(0, y), 200 + Math.random() * 400);
-    await sleep(500 + Math.random() * 800);
+    await sleep(300);
   }
 }
 
-// ================= SAFE CLICK (AROLINKS FIXED) =================
-async function safeClick(page, selector, label, force = false) {
-  try {
-    const el = await page.$(selector);
-    if (!el) return false;
-
-    // Remove overlays/iframes
-    await page.evaluate(() => {
-      document.querySelectorAll('iframe').forEach(i => {
-        i.style.pointerEvents = 'none';
-        i.style.display = 'none';
-      });
-      document.querySelectorAll('[style*="pointer-events"]').forEach(n => {
-        n.style.pointerEvents = 'auto';
-      });
-    });
-
-    // 🔥 AROLINKS: enable button forcibly (handles disabled/countdown)
-    await page.evaluate((sel) => {
+// ================= ENABLE BUTTON =================
+async function waitUntilEnabled(page, selector, timeout = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const ok = await page.evaluate(sel => {
       const b = document.querySelector(sel);
-      if (!b) return;
-      b.disabled = false;
-      b.removeAttribute('disabled');
-      b.removeAttribute('aria-disabled');
-      b.style.pointerEvents = 'auto';
-      b.style.display = 'block';
-      b.classList.remove('disabled');
+      if (!b) return false;
+      return !b.disabled && getComputedStyle(b).pointerEvents !== 'none';
     }, selector);
+    if (ok) return true;
+    await sleep(500);
+  }
+  return false;
+}
 
-    await el.scrollIntoViewIfNeeded();
-    await randomMouseMove(page);
+// ================= IFRAME SAFE CLICK =================
+async function iframeSafeClick(page, selector, label, force = false) {
+  try {
+    // Try main page
+    const clicked = await tryClick(page, selector, label, force);
+    if (clicked) return true;
 
-    try {
-      if (force) {
-        await el.click({ force: true, timeout: 2000 });
-      } else {
-        await Promise.race([
-          el.click({ timeout: 2000 }),
-          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3000 }).catch(() => {})
-        ]);
-      }
-    } catch {
-      // Hard JS click (works on arolinks)
-      await page.evaluate((sel) => {
-        const e = document.querySelector(sel);
-        if (!e) return;
-        e.dispatchEvent(new MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-          view: window
-        }));
-      }, selector);
+    // Try all iframes
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      const ok = await tryClick(frame, selector, label + ' (iframe)', force);
+      if (ok) return true;
     }
-
-    log(`${label} clicked${force ? ' (force)' : ''}`);
-    return true;
-
-  } catch (err) {
-    if (err.message && err.message.includes('Execution context was destroyed')) {
-      log(`${label} caused navigation (safe)`);
-      return true;
-    }
+    return false;
+  } catch {
     return false;
   }
 }
 
-// ================= POST PICKER =================
+async function tryClick(ctx, selector, label, force) {
+  const el = await ctx.$(selector);
+  if (!el) return false;
+
+  await ctx.evaluate(sel => {
+    const b = document.querySelector(sel);
+    if (!b) return;
+    b.disabled = false;
+    b.removeAttribute('disabled');
+    b.style.pointerEvents = 'auto';
+    b.style.display = 'block';
+  }, selector);
+
+  await el.scrollIntoViewIfNeeded();
+  await randomMouseMove(ctx.page ? ctx.page() : ctx);
+
+  try {
+    await el.click({ force, timeout: 2000 });
+  } catch {
+    await ctx.evaluate(sel => {
+      const e = document.querySelector(sel);
+      if (!e) return;
+      e.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true
+      }));
+    }, selector);
+  }
+
+  log(`${label} clicked`);
+  return true;
+}
+
+// ================= POST PICK =================
 async function pickRandomPost(page) {
   await page.waitForLoadState('domcontentloaded');
-  const posts = await page.$$('article.post h3.entry-title a');
-  if (!posts.length) throw new Error('No posts found');
-  log(`Found ${posts.length} posts`);
+  const posts = await page.$$('article.post a');
+  if (!posts.length) throw 'No posts';
   return posts[Math.floor(Math.random() * posts.length)];
 }
 
 // ================= SESSION =================
 async function runSession() {
-  const proxy = getRandomProxy();
-
-  const browser = await chromium.launch({
-    headless: false,
-    proxy: proxy
-      ? {
-          server: proxy.split('@').pop(),
-          username: proxy.includes('@') ? proxy.split('//')[1].split(':')[0] : undefined,
-          password: proxy.includes('@')
-            ? proxy.split('//')[1].split(':')[1].split('@')[0]
-            : undefined
-        }
-      : undefined
-  });
-  if (proxy) log(`Using proxy: ${proxy}`);
-
+  const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({
     viewport: { width: 360, height: 740 },
     isMobile: true,
     hasTouch: true,
     userAgent:
-      'Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+      'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile'
   });
 
   const page = await context.newPage();
 
   try {
     SESSION_COUNT++;
-    log(`▶ SESSION ${SESSION_COUNT} START`);
+    log(`▶ SESSION ${SESSION_COUNT}`);
 
-    // Home
     await page.goto(HOME_URL, { waitUntil: 'domcontentloaded' });
-    log('Home opened');
-    await randomScroll(page);
 
-    // Random post
     const post = await pickRandomPost(page);
     await post.click();
     await page.waitForLoadState('domcontentloaded');
-    log('Random post opened');
-    await randomScroll(page);
 
-    // DWD
-    const dwdButtons = await page.$$('.dwd-button');
-    if (!dwdButtons.length) throw new Error('No dwd-button found');
-    const dwd = dwdButtons[Math.floor(Math.random() * dwdButtons.length)];
+    const dwd = (await page.$$('.dwd-button'))[0];
     const [newTab] = await Promise.all([
       context.waitForEvent('page'),
       dwd.click()
     ]);
     await newTab.waitForLoadState('domcontentloaded');
-    log('DWD clicked → new tab');
 
     let activePage = newTab;
 
-    // ================= MAIN 2-SEC LOOP =================
     while (RUNNING) {
-      try {
-        const url = activePage.url();
+      const url = activePage.url();
 
-        // FINAL EXIT
-        if (url.includes('webdb.store')) {
-          log('webdb.store reached');
-          await sleep(WAIT_AFTER_WEBDB);
-          break;
-        }
-
-        await randomMouseMove(activePage);
-
-        // 🔥 AROLINKS GET LINK (dZJjx FIX + NEW TAB)
-        if (url.includes('arolinks.com')) {
-          const [maybeNewTab] = await Promise.all([
-            context.waitForEvent('page').catch(() => null),
-            safeClick(
-              activePage,
-              'button#get-link.btn.btn-unlock',
-              'Get Link',
-              true // FORCE
-            )
-          ]);
-
-          if (maybeNewTab) {
-            await maybeNewTab.waitForLoadState('domcontentloaded');
-            activePage = maybeNewTab;
-            log('Get Link opened in NEW TAB');
-            await sleep(POLL_INTERVAL);
-            continue;
-          }
-        }
-
-        // Verify
-        if (await safeClick(
-          activePage,
-          'button.ce-btn.ce-blue:has-text("Verify")',
-          'Verify'
-        )) {
-          await sleep(POLL_INTERVAL);
-          continue;
-        }
-
-        // Continue (normal)
-        if (await safeClick(
-          activePage,
-          'a#btn7 button.ce-btn.ce-blue:has-text("Continue")',
-          'Continue'
-        )) {
-          await sleep(POLL_INTERVAL);
-          continue;
-        }
-
-        // Continue (force)
-        if (await safeClick(
-          activePage,
-          'button#cross-snp2.ce-btn.ce-blue',
-          'Force Continue',
-          true
-        )) {
-          await sleep(POLL_INTERVAL);
-          continue;
-        }
-
-        await sleep(POLL_INTERVAL);
-
-      } catch (err) {
-        if (err.message && err.message.includes('Execution context was destroyed')) {
-          log('Navigation detected, continuing loop');
-          await sleep(1000);
-          continue;
-        }
-        throw err;
+      if (url.includes('webdb.store')) {
+        log('✅ webdb reached');
+        await sleep(WAIT_AFTER_WEBDB);
+        break;
       }
+
+      // AROLINKS GET LINK
+      if (url.includes('arolinks')) {
+        await waitUntilEnabled(activePage, '#get-link');
+        const [tab] = await Promise.all([
+          context.waitForEvent('page').catch(() => null),
+          iframeSafeClick(
+            activePage,
+            '#get-link, button:has-text("Get Link")',
+            'Get Link',
+            true
+          )
+        ]);
+        if (tab) {
+          await tab.waitForLoadState('domcontentloaded');
+          activePage = tab;
+        }
+      }
+
+      // VERIFY
+      if (await iframeSafeClick(
+        activePage,
+        'button:has-text("Verify")',
+        'Verify'
+      )) {
+        await sleep(POLL_INTERVAL);
+        continue;
+      }
+
+      // CONTINUE
+      if (await iframeSafeClick(
+        activePage,
+        'button:has-text("Continue")',
+        'Continue',
+        true
+      )) {
+        await sleep(POLL_INTERVAL);
+        continue;
+      }
+
+      await sleep(POLL_INTERVAL);
     }
 
-  } catch (err) {
-    log(`❌ REAL ERROR: ${err.message}`);
-    try { await page.screenshot({ path: `fatal-${Date.now()}.png` }); } catch {}
+  } catch (e) {
+    log(`❌ ERROR: ${e}`);
   } finally {
     await context.close();
     await browser.close();
-    log(`⏹ SESSION ${SESSION_COUNT} CLOSED`);
+    log(`⏹ SESSION CLOSED`);
   }
 }
 
-// ================= RUNNER =================
+// ================= RUN =================
 (async () => {
-  log('🚀 Automation started (arolinks dZJjx fixed)');
-  while (RUNNING) {
-    await runSession();
-  }
-  log('🛑 Automation stopped cleanly');
+  log('🚀 STARTED');
+  while (RUNNING) await runSession();
 })();
