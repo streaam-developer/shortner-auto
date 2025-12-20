@@ -127,8 +127,15 @@ async def click_random_dwd(page, context):
     )
 
     if not buttons:
-        print(">>> NO DWD BUTTONS FOUND")
-        return page
+        # Fallback: any button with download text
+        buttons = await page.query_selector_all(
+            "xpath=//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'download')]"
+        )
+        if not buttons:
+            print(">>> NO DWD BUTTONS FOUND")
+            return page
+        else:
+            print(f">>> FOUND {len(buttons)} DOWNLOAD BUTTONS (fallback)")
 
     btn = random.choice(buttons)
 
@@ -327,13 +334,12 @@ async def run():
             launch_args["proxy"] = proxy
 
         browser = await p.chromium.launch(**launch_args)
-        device = p.devices['iPhone 12']
         context = await browser.new_context(
-            **device,
             proxy=proxy if USE_PROXY else None,
             extra_http_headers={"User-Agent": random.choice(user_agents)}
         )
         page = await context.new_page()
+        await page.set_viewport_size({"width": 375, "height": 667})
 
         await page.goto(START_SITE, wait_until="domcontentloaded")
         await page.wait_for_load_state("networkidle")
