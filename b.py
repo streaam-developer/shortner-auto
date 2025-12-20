@@ -22,7 +22,7 @@ logging.basicConfig(
 log = logging.getLogger("AUTO")
 
 # =========================
-# SCREENSHOT SETUP
+# SCREENSHOT
 # =========================
 SCREENSHOT_DIR = "screenshots"
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
@@ -63,7 +63,7 @@ async def remove_consent(page):
         pass
 
 # =========================
-# SAFE CLICK (SINGLE)
+# SAFE CLICK (NAV AWARE)
 # =========================
 async def safe_click(page, element, name, selector):
     global clicked_buttons
@@ -72,7 +72,8 @@ async def safe_click(page, element, name, selector):
         return
 
     try:
-        await element.click(force=True)
+        async with page.expect_navigation(wait_until="domcontentloaded", timeout=15000):
+            await element.click(force=True)
     except:
         await element.evaluate("el => el.click()")
 
@@ -81,26 +82,12 @@ async def safe_click(page, element, name, selector):
     print(f">>> BUTTON CLICKED: {name}")
     log.info(f"✅ CLICKED {name}")
 
-    # 📸 TAKE SCREENSHOT AFTER CONTINUE
     if name == "CONTINUE":
-        await page.wait_for_timeout(5000)  # wait 5 sec
+        await page.wait_for_timeout(5000)
         await take_screenshot(page, "continue")
 
-    # wait until element hides / disables
-    try:
-        await page.wait_for_function(
-            """(sel) => {
-                const el = document.querySelector(sel);
-                return !el || el.disabled || el.offsetParent === null;
-            }""",
-            selector,
-            timeout=10000
-        )
-    except:
-        pass
-
 # =========================
-# URL CHANGE HANDLER
+# URL CHANGE HANDLER (FIXED)
 # =========================
 async def handle_url_change(page):
     global current_url, clicked_buttons
@@ -108,11 +95,14 @@ async def handle_url_change(page):
     new_url = page.url
     if new_url != current_url:
         current_url = new_url
-        clicked_buttons.clear()
+
+        # 🔥 WAIT FOR NEW PAGE DOM
+        await page.wait_for_load_state("domcontentloaded")
+
+        clicked_buttons.clear()  # reset ONLY after DOM ready
 
         print(f"\n🌍 NEW PAGE OPENED:")
         print(f"➡️  {new_url}\n")
-
         log.info(f"🌍 New URL loaded: {new_url}")
 
         if "webdb.store" in new_url:
@@ -123,13 +113,13 @@ async def handle_url_change(page):
     return True
 
 # =========================
-# MAIN LOOP
+# MAIN LOOP (FIXED)
 # =========================
 async def watch_and_click(page):
     global current_url
     current_url = page.url
 
-    log.info("🔁 Advanced infinite watcher started")
+    log.info("🔁 Advanced watcher started (navigation safe)")
 
     while True:
         if not await handle_url_change(page):
@@ -160,11 +150,6 @@ async def run():
 
         context = await browser.new_context()
         page = await context.new_page()
-
-        context.on(
-            "page",
-            lambda p: asyncio.create_task(watch_and_click(p))
-        )
 
         log.info(f"🌍 Opening {TARGET_URL}")
         await page.goto(TARGET_URL, wait_until="domcontentloaded")
