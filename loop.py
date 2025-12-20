@@ -94,26 +94,45 @@ async def click_random_dwd(page, context):
     if dwd_done:
         return page
 
-    buttons = []
-    for b in await page.query_selector_all(".dwd-button"):
-        if await visible(page, b):
-            buttons.append(b)
+    # 🔥 STRICT selector: class + text
+    buttons = await page.query_selector_all(
+        "xpath=//button[contains(@class,'dwd-button') and "
+        "contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'download')]"
+    )
 
     if not buttons:
         return page
 
     btn = random.choice(buttons)
+
+    # 🔎 Real visibility check
+    visible = await page.evaluate("""
+        el => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 &&
+                   getComputedStyle(el).display !== 'none' &&
+                   getComputedStyle(el).visibility !== 'hidden';
+        }
+    """, btn)
+
+    if not visible:
+        return page
+
     dwd_done = True
 
-    print(">>> RANDOM DWD BUTTON CLICKED")
-    log.info("➡️ Random DWD button clicked")
+    print(">>> DWD DOWNLOAD NOW CLICKED")
+    log.info("➡️ DWD Download Now clicked")
 
-    # JS click
+    # ======================
+    # LEVEL 1: JS CLICK
+    # ======================
     await page.evaluate("el => el.click()", btn)
 
-    # ---- WAIT FOR NAVIGATION ----
+    # ======================
+    # WAIT FOR NAVIGATION
+    # ======================
     try:
-        async with context.expect_page(timeout=6000) as p:
+        async with context.expect_page(timeout=7000) as p:
             pass
         new_page = await p.value
         await new_page.wait_for_load_state("domcontentloaded")
@@ -121,12 +140,16 @@ async def click_random_dwd(page, context):
         print(f"🌍 DWD NEW TAB: {new_page.url}")
         log.info(f"🌍 DWD new tab: {new_page.url}")
 
+        # ⏱ wait 5 sec + screenshot
         await new_page.wait_for_timeout(5000)
         await take_screenshot(new_page, "dwd")
 
         return new_page
 
     except:
+        # ======================
+        # SAME TAB FALLBACK
+        # ======================
         await page.wait_for_load_state("domcontentloaded")
 
         print(f"🌍 DWD SAME TAB: {page.url}")
@@ -136,6 +159,7 @@ async def click_random_dwd(page, context):
         await take_screenshot(page, "dwd")
 
         return page
+
 
 # ================= VERIFY =================
 async def click_verify(page):
