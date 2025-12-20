@@ -92,10 +92,10 @@ class AutomationBot:
             await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
             await self._human_like_delay(100, 300)
 
-    async def _click_element_human_like(self, page: Page, selector: str, new_page_timeout=7000):
+    async def _click_element_human_like(self, page: Page, selector: str, new_page_timeout=10000):
         """
         Finds an element, scrolls to it, hovers, and clicks in a human-like manner.
-        Handles navigation that opens in a new tab.
+        Handles navigation and checks for special shortener pages.
         """
         try:
             element = page.locator(selector).first
@@ -104,11 +104,9 @@ class AutomationBot:
 
             self.logger.info(f"Interacting with element: {selector}")
             
-            # Human-like interaction
             await element.scroll_into_view_if_needed()
             await self._human_like_delay(200, 500)
             
-            # Move mouse over the element
             bounding_box = await element.bounding_box()
             if bounding_box:
                 target_x = bounding_box['x'] + bounding_box['width'] * random.uniform(0.3, 0.7)
@@ -116,25 +114,58 @@ class AutomationBot:
                 await page.mouse.move(target_x, target_y, steps=random.randint(5, 15))
                 await self._human_like_delay(100, 400)
 
-            # Perform the click and handle potential new tabs
             async with self.context.expect_page(timeout=new_page_timeout) as new_page_info:
                 await element.click()
             
             new_page = await new_page_info.value
             await new_page.wait_for_load_state("domcontentloaded", timeout=30000)
             self.logger.info(f"➡️ New tab opened: {new_page.url}")
+
+            # Check if this new tab is a shortener that needs special handling
+            if "readnews18.com" in new_page.url:
+                self.logger.info("Shortener page detected, starting special handling...")
+                new_page = await self._handle_shortener_tab(new_page)
+
             await self._take_screenshot(new_page, "new_tab")
-            
-            # Close the old page to save resources
-            # await page.close() 
             return new_page
 
         except Exception:
-            # Fallback for same-tab navigation or if new tab logic fails
             await page.wait_for_load_state("networkidle", timeout=30000)
             self.logger.info(f"➡️ Navigated on the same tab to: {page.url}")
             await self._take_screenshot(page, "same_tab_nav")
             return page
+
+    async def _handle_shortener_tab(self, page: Page) -> Page:
+        """
+        Aggressively handles specific shortener pages by waiting for and
+        forcefully clicking a sequence of buttons.
+        """
+        try:
+            self.logger.info("Waiting for 'Verify' button (#btn6)...")
+            verify_button = page.locator("#btn6")
+            await verify_button.wait_for(state="visible", timeout=20000)
+            
+            self.logger.info("Forcefully clicking 'Verify' button.")
+            await verify_button.click(force=True)
+            await self._human_like_delay(500, 1000)
+
+            self.logger.info("Waiting for 'Continue' button (#btn7)...")
+            continue_button = page.locator("#btn7")
+            await continue_button.wait_for(state="visible", timeout=20000)
+            
+            self.logger.info("Forcefully clicking 'Continue' button.")
+            
+            # Click and wait for the navigation that should follow
+            async with page.expect_navigation(wait_until="domcontentloaded", timeout=15000):
+                await continue_button.click(force=True)
+            
+            self.logger.info(f"Navigation after Continue click successful. New URL: {page.url}")
+
+        except Exception as e:
+            self.logger.error(f"❌ Error during shortener handling: {e}")
+            await self._take_screenshot(page, "shortener_error")
+        
+        return page
 
     async def _open_random_download_post(self, page: Page):
         """Finds and navigates to a random download link on the page."""
@@ -155,11 +186,8 @@ class AutomationBot:
         
     async def run_automation_flow(self, playwright: async_playwright):
         """Main automation logic loop."""
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        ]
-        
+        device = playwright.devices['Pixel 5']
+
         launch_args = {
             "headless": HEADLESS,
             "args": [
@@ -175,8 +203,7 @@ class AutomationBot:
 
         self.browser = await playwright.chromium.launch(**launch_args)
         self.context = await self.browser.new_context(
-            user_agent=random.choice(user_agents),
-            viewport={'width': 1280, 'height': 720},
+            **device,
             java_script_enabled=True,
             bypass_csp=True
         )
