@@ -5,12 +5,6 @@ const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 2000;
 
-const ALLOWED_DOMAINS = [
-  'yomovies.delivery',
-  'arolinks.com',
-  'webdb.store'
-];
-
 let RUNNING = true;
 let SESSION_COUNT = 0;
 
@@ -26,10 +20,6 @@ function log(msg) {
   fs.appendFileSync('automation.log', line + '\n');
 }
 
-function domainAllowed(url) {
-  return ALLOWED_DOMAINS.some(d => url.includes(d));
-}
-
 // Graceful stop
 process.on('SIGINT', () => {
   console.log('\n🛑 Stopping after current session...');
@@ -42,7 +32,7 @@ async function safeClick(page, selector, label) {
   const el = await page.$(selector);
   if (!el) return false;
 
-  // Disable all iframe ads
+  // Disable iframe ads (Google Ads etc.)
   await page.evaluate(() => {
     document.querySelectorAll('iframe').forEach(i => {
       i.style.pointerEvents = 'none';
@@ -52,11 +42,14 @@ async function safeClick(page, selector, label) {
 
   try {
     await el.scrollIntoViewIfNeeded();
+
     try {
       await el.click({ timeout: 2000 });
     } catch {
+      // JS fallback (when ads overlay blocks click)
       await page.evaluate(e => e.click(), el);
     }
+
     log(`${label} clicked`);
     return true;
   } catch {
@@ -69,6 +62,7 @@ async function safeClick(page, selector, label) {
 async function pickRandomPost(page) {
   await page.waitForLoadState('domcontentloaded');
 
+  // EXACT selector from your HTML
   const posts = await page.$$('article.post h3.entry-title a');
   if (!posts.length) throw new Error('No posts found');
 
@@ -95,19 +89,19 @@ async function runSession() {
     SESSION_COUNT++;
     log(`▶ SESSION ${SESSION_COUNT} START`);
 
-    // Home
+    // 1️⃣ Home
     await page.goto(HOME_URL, { waitUntil: 'domcontentloaded' });
     log('Home opened');
     await sleep(2000);
 
-    // Random post
+    // 2️⃣ Random post
     const post = await pickRandomPost(page);
     await post.click();
     await page.waitForLoadState('domcontentloaded');
     log('Random post opened');
     await sleep(2000);
 
-    // DWD button
+    // 3️⃣ DWD button
     const dwdButtons = await page.$$('.dwd-button');
     if (!dwdButtons.length) throw new Error('No dwd-button');
 
@@ -124,21 +118,14 @@ async function runSession() {
     while (RUNNING) {
       const url = newTab.url();
 
-      // unexpected domain
-      if (!domainAllowed(url)) {
-        log(`Unexpected domain: ${url}`);
-        await newTab.screenshot({ path: `error-${Date.now()}.png` });
-        break;
-      }
-
-      // FINAL EXIT
+      // ✅ ONLY FINAL EXIT CONDITION
       if (url.includes('webdb.store')) {
         log('webdb.store reached');
         await sleep(WAIT_AFTER_WEBDB);
         break;
       }
 
-      // Check buttons (EVERY 2 SECONDS)
+      // 🔗 arolinks → Get Link
       if (url.includes('arolinks.com')) {
         if (await safeClick(newTab, 'button:has-text("Get Link")', 'Get Link')) {
           await sleep(POLL_INTERVAL);
@@ -146,11 +133,17 @@ async function runSession() {
         }
       }
 
-      if (await safeClick(newTab, 'button.ce-btn.ce-blue:has-text("Verify")', 'Verify')) {
+      // ✅ Verify (ANY DOMAIN)
+      if (await safeClick(
+        newTab,
+        'button.ce-btn.ce-blue:has-text("Verify")',
+        'Verify'
+      )) {
         await sleep(POLL_INTERVAL);
         continue;
       }
 
+      // ➡ Continue (ANY DOMAIN)
       if (await safeClick(
         newTab,
         'a#btn7 button.ce-btn.ce-blue:has-text("Continue")',
@@ -160,7 +153,7 @@ async function runSession() {
         continue;
       }
 
-      // Nothing found → wait 2 sec
+      // ⏳ Nothing found → wait 2 sec
       await sleep(POLL_INTERVAL);
     }
 
@@ -179,7 +172,7 @@ async function runSession() {
 // ================= RUNNER =================
 
 (async () => {
-  log('🚀 Automation started (2-sec polling mode)');
+  log('🚀 Automation started (2-sec polling, no domain block)');
   while (RUNNING) {
     await runSession();
   }
