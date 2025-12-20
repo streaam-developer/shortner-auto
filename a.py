@@ -17,7 +17,12 @@ logging.basicConfig(
 log = logging.getLogger("AUTO")
 
 # =========================
-# REMOVE COOKIE / OVERLAY
+# STATE (ANTI DOUBLE CLICK)
+# =========================
+clicked_buttons = set()
+
+# =========================
+# REMOVE OVERLAY
 # =========================
 async def remove_consent(page):
     try:
@@ -34,36 +39,59 @@ async def remove_consent(page):
         pass
 
 # =========================
-# SAFE CLICK
+# SAFE CLICK (ONCE)
 # =========================
-async def safe_click(element, name):
+async def safe_click(page, element, name, selector):
+    global clicked_buttons
+
+    if selector in clicked_buttons:
+        return  # already clicked, skip
+
     try:
         await element.click(force=True)
     except:
         await element.evaluate("el => el.click()")
 
+    clicked_buttons.add(selector)
+
     print(f">>> BUTTON CLICKED: {name}")
     log.info(f"✅ CLICKED {name}")
 
+    # ⏳ WAIT until button is gone / disabled
+    try:
+        await page.wait_for_function(
+            """(sel) => {
+                const el = document.querySelector(sel);
+                return !el || el.disabled || el.offsetParent === null;
+            }""",
+            selector,
+            timeout=10000
+        )
+        log.info(f"🔒 {name} button locked (hidden/disabled)")
+    except:
+        pass
+
 # =========================
-# INFINITE BUTTON LOOP
+# BUTTON LOOP
 # =========================
 async def watch_and_click(page):
-    log.info("🔁 Infinite button watcher started")
+    log.info("🔁 Infinite button watcher started (safe mode)")
 
     while True:
         await remove_consent(page)
 
         try:
             # VERIFY
-            verify = await page.query_selector("button#btn6.ce-btn.ce-blue")
+            verify_sel = "button#btn6.ce-btn.ce-blue"
+            verify = await page.query_selector(verify_sel)
             if verify and await verify.is_visible():
-                await safe_click(verify, "VERIFY")
+                await safe_click(page, verify, "VERIFY", verify_sel)
 
             # CONTINUE
-            cont = await page.query_selector("a#btn7 button.ce-btn.ce-blue")
+            cont_sel = "a#btn7 button.ce-btn.ce-blue"
+            cont = await page.query_selector(cont_sel)
             if cont and await cont.is_visible():
-                await safe_click(cont, "CONTINUE")
+                await safe_click(page, cont, "CONTINUE", cont_sel)
 
         except Exception as e:
             log.error(f"⚠️ Loop error: {e}")
