@@ -3,7 +3,7 @@ import logging
 from playwright.async_api import async_playwright
 
 # ================= CONFIG =================
-START_SITE = "https://skymovieshd.tattoo"
+START_SITE = "https://yomovies.delivery"
 CHECK_INTERVAL = 2000
 HEADLESS = True
 USE_PROXY = False   # 👉 True to enable proxy
