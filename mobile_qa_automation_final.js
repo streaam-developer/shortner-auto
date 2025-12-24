@@ -59,12 +59,10 @@ async function randomScroll(page) {
 async function safeClick(page, selector, label, force = false) {
   try {
     const el = page.locator(selector).first();
-    if (!force) {
-      await el.waitFor({ timeout: 2000 }).catch(() => {});
-      if (!(await el.isVisible())) {
-        log(`${label} element not visible after 5s wait`);
-        return false;
-      }
+    await el.waitFor({ timeout: 2000 }).catch(() => {});
+    if (!(await el.isVisible())) {
+      log(`${label} element not visible after 5s wait`);
+      return false;
     }
 
     // Remove overlays/iframes
