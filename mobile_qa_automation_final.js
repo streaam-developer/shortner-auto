@@ -194,11 +194,12 @@ async function runSession() {
     // Random post
     const post = await pickRandomPost(page);
     await post.click();
-    await page.waitForLoadState('domcontentloaded');
+    await page.waitForLoadState('networkidle');
     log('Random post opened');
     await randomScroll(page);
 
     // DWD
+    await page.waitForSelector('.dwd-button', { timeout: 10000 });
     const dwdButtons = await page.$$('.dwd-button');
     if (!dwdButtons.length) throw new Error('No dwd-button found');
     const dwd = dwdButtons[Math.floor(Math.random() * dwdButtons.length)];
@@ -234,7 +235,7 @@ async function runSession() {
               activePage,
               'button[id="get-link"]',
               'Get Link',
-              true // FORCE
+              false // No force on arolinks
             )
           ]);
 
@@ -251,7 +252,8 @@ async function runSession() {
         if (await safeClick(
           activePage,
           'button.ce-btn.ce-blue:has-text("Verify")',
-          'Verify'
+          'Verify',
+          !url.includes('arolinks.com')
         )) {
           await sleep(POLL_INTERVAL);
           continue;
@@ -261,7 +263,8 @@ async function runSession() {
         if (await safeClick(
           activePage,
           'button:has-text("Continue")',
-          'Continue'
+          'Continue',
+          !url.includes('arolinks.com')
         )) {
           await sleep(POLL_INTERVAL);
           continue;
@@ -272,7 +275,7 @@ async function runSession() {
           activePage,
           'button#cross-snp2.ce-btn.ce-blue',
           'Force Continue',
-          true
+          !url.includes('arolinks.com')
         )) {
           await sleep(POLL_INTERVAL);
           continue;
