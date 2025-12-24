@@ -1,5 +1,4 @@
 const { chromium } = require('playwright');
-const { stealth } = require('playwright-stealth');
 const fs = require('fs');
 
 const HOME_URL = 'https://yomovies.delivery';
@@ -178,7 +177,6 @@ async function runSession() {
   }
 
   const context = await browser.newContext(contextOptions);
-  await stealth(context);
 
   const page = await context.newPage();
 
