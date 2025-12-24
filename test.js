@@ -144,9 +144,22 @@ async function clickButton(button, options = {}) {
       log('✓ Method 3: evaluate(node => node.click()) succeeded.');
       return;
     } catch (e) {
-        log('... Method 3 failed.');
-        throw new Error('All forceful click methods failed.');
+        log('... Method 3 failed, trying next.');
     }
+
+    try {
+      const onclick = await button.getAttribute('onclick');
+      if (onclick) {
+        log(`... Trying Method 4: evaluate with onclick attribute: ${onclick}`);
+        await button.page().evaluate(onclick);
+        log('✓ Method 4: evaluate(onclick) succeeded.');
+        return;
+      }
+    } catch (e) {
+        log('... Method 4 failed.');
+    }
+
+    throw new Error('All forceful click methods failed.');
   };
 
   if (expectNewPage) {
@@ -320,7 +333,7 @@ async function runSession() {
         log('🕵️‍♂️ arolinks.com detected, searching for buttons...');
         const result = await findAndClickButton(
           activePage,
-          ['#btn6', '#btn7', 'a#get-link'],
+          ['#btn6', '#btn7', 'a#get-link', 'button:has-text("Verify")'],
           { expectNewPage: true }
         );
 
