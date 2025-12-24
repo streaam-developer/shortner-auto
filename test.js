@@ -221,8 +221,31 @@ async function runSession() {
       }
 
       if (url.includes('arolinks.com')) {
-        const np = await forceArolinks(context, activePage);
-        if (np) activePage = np;
+        // Try to click buttons in sequence
+        try {
+          await activePage.waitForSelector('#btn6', { timeout: 1000 });
+          await activePage.click('#btn6');
+          log('🔥 Clicked Verify button');
+          await sleep(2000);
+        } catch (e) {}
+
+        try {
+          await activePage.waitForSelector('#btn7', { timeout: 1000 });
+          await activePage.click('#btn7');
+          log('🔥 Clicked Continue button');
+          await sleep(2000);
+        } catch (e) {}
+
+        try {
+          await activePage.waitForSelector('a#get-link', { timeout: 1000 });
+          const [newTab] = await Promise.all([
+            context.waitForEvent('page'),
+            activePage.click('a#get-link')
+          ]);
+          log('🔥 Clicked Get Link button');
+          activePage = newTab;
+          await activePage.waitForLoadState('domcontentloaded');
+        } catch (e) {}
       }
 
       await sleep(POLL_INTERVAL);
