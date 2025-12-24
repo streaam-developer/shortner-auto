@@ -104,6 +104,35 @@ WebGLRenderingContext.prototype.getParameter = function(p){
 
 // ================= AROLINKS HARD FIX =================
 async function forceArolinks(context, page) {
+  // Click Verify button if present
+  const verifyClicked = await page.evaluate(() => {
+    const btn = document.getElementById('btn6');
+    if (btn && btn.style.display !== 'none') {
+      btn.click();
+      return true;
+    }
+    return false;
+  });
+  if (verifyClicked) {
+    log('🔥 Clicked Verify button');
+    await sleep(2000); // Wait for action
+  }
+
+  // Click Continue button if present
+  const continueClicked = await page.evaluate(() => {
+    const btn = document.getElementById('btn7');
+    if (btn && btn.style.display !== 'none') {
+      btn.click();
+      return true;
+    }
+    return false;
+  });
+  if (continueClicked) {
+    log('🔥 Clicked Continue button');
+    await sleep(2000); // Wait for navigation
+  }
+
+  // Now get the get-link
   const href = await page.evaluate(() => {
     const a = document.querySelector('a#get-link');
     if (!a) return null;
