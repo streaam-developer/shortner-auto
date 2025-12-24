@@ -221,31 +221,47 @@ async function runSession() {
       }
 
       if (url.includes('arolinks.com')) {
-        // Try to click buttons in sequence
-        try {
-          await activePage.waitForSelector('#btn6', { timeout: 1000 });
-          await activePage.click('#btn6', { force: true });
+        // Try to click buttons in sequence using evaluate
+        const verifyClicked = await activePage.evaluate(() => {
+          const btn = document.getElementById('btn6');
+          if (btn && btn.offsetParent !== null) { // visible
+            btn.click();
+            return true;
+          }
+          return false;
+        });
+        if (verifyClicked) {
           log('🔥 Clicked Verify button');
           await sleep(2000);
-        } catch (e) {}
+        }
 
-        try {
-          await activePage.waitForSelector('#btn7', { timeout: 1000 });
-          await activePage.click('#btn7', { force: true });
+        const continueClicked = await activePage.evaluate(() => {
+          const btn = document.getElementById('btn7');
+          if (btn && btn.offsetParent !== null) {
+            btn.click();
+            return true;
+          }
+          return false;
+        });
+        if (continueClicked) {
           log('🔥 Clicked Continue button');
           await sleep(2000);
-        } catch (e) {}
+        }
 
-        try {
-          await activePage.waitForSelector('a#get-link', { timeout: 1000 });
-          const [newTab] = await Promise.all([
-            context.waitForEvent('page'),
-            activePage.click('a#get-link', { force: true })
-          ]);
-          log('🔥 Clicked Get Link button');
+        const linkClicked = await activePage.evaluate(() => {
+          const a = document.querySelector('a#get-link');
+          if (a && a.offsetParent !== null) {
+            window.open(a.href, '_blank');
+            return true;
+          }
+          return false;
+        });
+        if (linkClicked) {
+          log('🔥 Opened Get Link');
+          const newTab = await context.waitForEvent('page');
           activePage = newTab;
           await activePage.waitForLoadState('domcontentloaded');
-        } catch (e) {}
+        }
       }
 
       await sleep(POLL_INTERVAL);
