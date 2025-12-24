@@ -114,39 +114,39 @@ async function safeClick(page, selector, label, force = false) {
 
     let clicked = false;
 
-    // Method 1: Playwright click
+    // Method 1: evaluate node.click() (DOM click - highest priority)
     try {
-        if (force) {
-            await el.click({ force: true, timeout: 3000 });
-        } else {
-             await Promise.race([
-                el.click({ timeout: 3000 }),
-                page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 4000 }).catch(() => {})
-             ]);
-        }
-        log('✓ Click Method 1: Playwright click succeeded.');
+        await el.evaluate(node => node.click());
+        log('✓ Click Method 1: evaluate(node => node.click()) succeeded.');
         clicked = true;
+        await sleep(1500); // Allow time for navigation
     } catch (e) {
         log(`... Method 1 failed: ${e.message.split('\n')[0]}`);
     }
 
-    // Method 2: dispatchEvent
+    // Method 2: Playwright click
     if (!clicked) {
         try {
-            await el.dispatchEvent('click');
-            log('✓ Click Method 2: dispatchEvent("click") succeeded.');
+            if (force) {
+                await el.click({ force: true, timeout: 3000 });
+            } else {
+                await Promise.race([
+                    el.click({ timeout: 3000 }),
+                    page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 4000 }).catch(() => {})
+                ]);
+            }
+            log('✓ Click Method 2: Playwright click succeeded.');
             clicked = true;
-            await sleep(1500); // Allow time for navigation
         } catch (e) {
             log(`... Method 2 failed: ${e.message.split('\n')[0]}`);
         }
     }
-    
-    // Method 3: evaluate node.click()
+
+    // Method 3: dispatchEvent
     if (!clicked) {
         try {
-            await el.evaluate(node => node.click());
-            log('✓ Click Method 3: evaluate(node => node.click()) succeeded.');
+            await el.dispatchEvent('click');
+            log('✓ Click Method 3: dispatchEvent("click") succeeded.');
             clicked = true;
             await sleep(1500); // Allow time for navigation
         } catch (e) {
