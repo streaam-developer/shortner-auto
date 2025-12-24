@@ -6,10 +6,15 @@ const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 500;
 
 // ================= PROXY CONFIG =================
-const PROXY_ENABLED = false; // false to disable
-const PROXIES = [
-  // 'http://user:pass@ip:port'
-];
+const PROXY_ENABLED = true; // true to enable
+const PROXIES = fs.readFileSync('proxy.txt', 'utf8')
+  .split('\n')
+  .map(line => line.trim())
+  .filter(line => line)
+  .map(line => {
+    const [ip, port, user, pass] = line.split(':');
+    return `http://${user}:${pass}@${ip}:${port}`;
+  });
 
 function getRandomProxy() {
   if (!PROXY_ENABLED || !PROXIES.length) return null;
@@ -65,12 +70,25 @@ async function safeClick(page, selector, label, force = false) {
       return false;
     }
 
-    // Remove overlays/iframes
+    // Remove overlays/iframes/popups/modals
     await page.evaluate(() => {
+      // Hide iframes
       document.querySelectorAll('iframe').forEach(i => {
         i.style.pointerEvents = 'none';
         i.style.display = 'none';
       });
+      // Hide common blockers
+      document.querySelectorAll('.modal, .popup, .overlay, .dialog, [class*="modal"], [class*="popup"], [class*="overlay"], [class*="dialog"]').forEach(el => {
+        el.style.display = 'none';
+      });
+      // Hide fixed/absolute high z-index elements
+      document.querySelectorAll('*').forEach(el => {
+        const style = window.getComputedStyle(el);
+        if ((style.position === 'fixed' || style.position === 'absolute') && parseInt(style.zIndex) > 1000) {
+          el.style.display = 'none';
+        }
+      });
+      // Reset pointer events
       document.querySelectorAll('[style*="pointer-events"]').forEach(n => {
         n.style.pointerEvents = 'auto';
       });
