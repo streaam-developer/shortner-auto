@@ -95,36 +95,85 @@ async function safeClick(page, selector, label, force = false) {
     await randomMouseMove(page);
 
     let clicked = false;
-    for (let attempt = 0; attempt < 3 && !clicked; attempt++) {
-      try {
-        if (force) {
-          await el.click({ force: true, timeout: 2000 });
-        } else {
-          await Promise.race([
-            el.click({ timeout: 2000 }),
-            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3000 }).catch(() => {})
-          ]);
-        }
-        clicked = true;
-      } catch {
-        // Hard JS click (works on arolinks): navigate to href directly
-        const href = await buttonEl.evaluate((e) => e.closest('a')?.href);
 
-        if (href) {
-          log(`Fallback: Navigating directly to href: ${href}`);
-          await page.goto(href, { waitUntil: 'domcontentloaded' });
+    // Method 1: Playwright click
+    try {
+        if (force) {
+            await el.click({ force: true, timeout: 3000 });
         } else {
-          // If no href, fallback to a JS click
-          log('Fallback: No href found, trying JS click.');
-          await buttonEl.evaluate((e) => e.click());
+             await Promise.race([
+                el.click({ timeout: 3000 }),
+                page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 4000 }).catch(() => {})
+             ]);
         }
-        clicked = true; // Assume navigation or click worked
-      }
-      if (!clicked && attempt < 2) await sleep(1000); // Wait before retry
+        log('✓ Click Method 1: Playwright click succeeded.');
+        clicked = true;
+    } catch (e) {
+        log(`... Method 1 failed: ${e.message.split('\n')[0]}`);
     }
 
-    log(`${label} clicked${force ? ' (force)' : ''}`);
-    return true;
+    // Method 2: dispatchEvent
+    if (!clicked) {
+        try {
+            await el.dispatchEvent('click');
+            log('✓ Click Method 2: dispatchEvent("click") succeeded.');
+            clicked = true;
+            await sleep(1500); // Allow time for navigation
+        } catch (e) {
+            log(`... Method 2 failed: ${e.message.split('\n')[0]}`);
+        }
+    }
+    
+    // Method 3: evaluate node.click()
+    if (!clicked) {
+        try {
+            await el.evaluate(node => node.click());
+            log('✓ Click Method 3: evaluate(node => node.click()) succeeded.');
+            clicked = true;
+            await sleep(1500); // Allow time for navigation
+        } catch (e) {
+            log(`... Method 3 failed: ${e.message.split('\n')[0]}`);
+        }
+    }
+
+    // Method 4: href fallback
+    if (!clicked) {
+        try {
+            const href = await buttonEl.evaluate((e) => e.closest('a')?.href);
+            if (href) {
+                log(`... Trying Method 4: Navigating directly to href: ${href}`);
+                await page.goto(href, { waitUntil: 'domcontentloaded' });
+                log('✓ Click Method 4: href navigation succeeded.');
+                clicked = true;
+            }
+        } catch (e) {
+            log(`... Method 4 failed: ${e.message.split('\n')[0]}`);
+        }
+    }
+    
+    // Method 5: onclick fallback
+    if (!clicked) {
+        try {
+            const onclick = await buttonEl.getAttribute('onclick');
+            if (onclick) {
+                log(`... Trying Method 5: evaluate with onclick attribute: ${onclick}`);
+                await page.evaluate(onclick);
+                log('✓ Click Method 5: evaluate(onclick) succeeded.');
+                clicked = true;
+                await sleep(1500); // Allow time for navigation
+            }
+        } catch (e) {
+            log(`... Method 5 failed: ${e.message.split('\n')[0]}`);
+        }
+    }
+
+    if (clicked) {
+        log(`${label} clicked successfully.`);
+    } else {
+        log(`❌ All click methods failed for ${label}.`);
+    }
+    
+    return clicked;
 
   } catch (err) {
     if (err.message && err.message.includes('Execution context was destroyed')) {
