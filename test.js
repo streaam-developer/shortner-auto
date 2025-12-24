@@ -6,6 +6,7 @@ const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 1000;
 const USE_PROXY = false; // Set to false to disable proxy usage
+const HEADLESS = false; // Set to false to run in visible mode
 
 // ================= PROXY CONFIG =================
 const PROXIES = [
@@ -136,7 +137,7 @@ async function runSession() {
   const profile = await getIPProfile(proxy);
 
   const browser = await chromium.launch({
-    headless: true,
+    headless: HEADLESS,
     args: ['--disable-blink-features=AutomationControlled'],
     proxy: proxy ? { server: proxy } : undefined
   });
