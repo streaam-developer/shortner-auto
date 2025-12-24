@@ -221,37 +221,43 @@ async function runSession() {
       }
 
       if (url.includes('arolinks.com')) {
-        // Continuously search and click buttons
+        // Search and click buttons, including inside iframes
         const buttonsClicked = await activePage.evaluate(() => {
+          function clickIfVisible(el) {
+            if (el && el.offsetParent !== null) {
+              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+              return true;
+            }
+            return false;
+          }
+
           let clicked = false;
-          // Click Verify
-          const btn6 = document.getElementById('btn6');
-          if (btn6 && btn6.offsetParent !== null) {
-            btn6.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            clicked = true;
+          // Main document
+          clicked = clickIfVisible(document.getElementById('btn6')) || clicked;
+          clicked = clickIfVisible(document.getElementById('btn7')) || clicked;
+          clicked = clickIfVisible(document.querySelector('a#get-link')) || clicked;
+
+          // Inside iframes
+          const iframes = document.querySelectorAll('iframe');
+          for (const iframe of iframes) {
+            try {
+              const doc = iframe.contentDocument || iframe.contentWindow.document;
+              clicked = clickIfVisible(doc.getElementById('btn6')) || clicked;
+              clicked = clickIfVisible(doc.getElementById('btn7')) || clicked;
+              clicked = clickIfVisible(doc.querySelector('a#get-link')) || clicked;
+            } catch (e) {}
           }
-          // Click Continue
-          const btn7 = document.getElementById('btn7');
-          if (btn7 && btn7.offsetParent !== null) {
-            btn7.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            clicked = true;
-          }
-          // Click Get Link
-          const getLink = document.querySelector('a#get-link');
-          if (getLink && getLink.offsetParent !== null) {
-            getLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            clicked = true;
-          }
+
           return clicked;
         });
         if (buttonsClicked) {
-          log('🔥 Clicked available buttons on arolinks');
+          log('🔥 Clicked available buttons on arolinks (including iframes)');
           await sleep(2000);
           // Check if new tab opened
           try {
             const newTab = await Promise.race([
               context.waitForEvent('page', { timeout: 1000 }),
-              new Promise(resolve => setTimeout(resolve, 1000))
+              Promise.resolve(null)
             ]);
             if (newTab) {
               activePage = newTab;
