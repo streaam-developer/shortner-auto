@@ -132,6 +132,7 @@ async function forceArolinks(context, page) {
 // ================= SESSION =================
 async function runSession() {
   const proxy = USE_PROXY ? getRandomProxy() : null;
+  log(`🔗 Proxy: ${proxy ? proxy : 'Disabled'}`);
   const profile = await getIPProfile(proxy);
 
   const browser = await chromium.launch({
@@ -164,6 +165,7 @@ async function runSession() {
     for (let i = 0; i < retries; i++) {
       try {
         await page.goto(HOME_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        log(`✅ Navigated to ${HOME_URL}`);
         break;
       } catch (e) {
         if (i === retries - 1) throw e;
@@ -173,14 +175,21 @@ async function runSession() {
     }
 
     const post = (await page.$$('article.post h3.entry-title a'))[0];
+    const postTitle = await post.innerText();
+    const postHref = await post.getAttribute('href');
+    log(`📄 Clicked on post: "${postTitle}" (${postHref})`);
     await post.click();
     await page.waitForLoadState('networkidle');
+    log(`📍 Current page: ${page.url()}`);
 
     const dwd = (await page.$$('.dwd-button'))[0];
+    const dwdText = await dwd.innerText();
+    log(`⬇️ Clicked download button: "${dwdText}"`);
     const [tab] = await Promise.all([
       context.waitForEvent('page'),
       dwd.click()
     ]);
+    log(`📍 New tab opened: ${tab.url()}`);
 
     let activePage = tab;
     await activePage.waitForLoadState('domcontentloaded');
