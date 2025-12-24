@@ -224,14 +224,14 @@ async function runSession() {
         // Try to click buttons in sequence
         try {
           await activePage.waitForSelector('#btn6', { timeout: 1000 });
-          await activePage.click('#btn6');
+          await activePage.click('#btn6', { force: true });
           log('🔥 Clicked Verify button');
           await sleep(2000);
         } catch (e) {}
 
         try {
           await activePage.waitForSelector('#btn7', { timeout: 1000 });
-          await activePage.click('#btn7');
+          await activePage.click('#btn7', { force: true });
           log('🔥 Clicked Continue button');
           await sleep(2000);
         } catch (e) {}
@@ -240,7 +240,7 @@ async function runSession() {
           await activePage.waitForSelector('a#get-link', { timeout: 1000 });
           const [newTab] = await Promise.all([
             context.waitForEvent('page'),
-            activePage.click('a#get-link')
+            activePage.click('a#get-link', { force: true })
           ]);
           log('🔥 Clicked Get Link button');
           activePage = newTab;
