@@ -5,6 +5,7 @@ const fs = require('fs');
 const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 1000;
+const USE_PROXY = false; // Set to false to disable proxy usage
 
 // ================= PROXY CONFIG =================
 const PROXIES = [
@@ -36,6 +37,14 @@ process.on('SIGINT', () => {
 
 // ================= IP → FINGERPRINT =================
 async function getIPProfile(proxy) {
+  if (!proxy) {
+    log('🌍 No proxy, using default profile');
+    return {
+      timezone: 'UTC',
+      locale: 'en-US'
+    };
+  }
+
   try {
     const res = await axios.get('http://ip-api.com/json', {
       proxy: {
@@ -122,13 +131,13 @@ async function forceArolinks(context, page) {
 
 // ================= SESSION =================
 async function runSession() {
-  const proxy = getRandomProxy();
+  const proxy = USE_PROXY ? getRandomProxy() : null;
   const profile = await getIPProfile(proxy);
 
   const browser = await chromium.launch({
     headless: true,
     args: ['--disable-blink-features=AutomationControlled'],
-    proxy: { server: proxy }
+    proxy: proxy ? { server: proxy } : undefined
   });
 
   const context = await browser.newContext({
