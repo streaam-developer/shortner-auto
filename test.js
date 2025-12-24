@@ -126,13 +126,13 @@ async function clickButton(button, options = {}) {
     const page = button.page();
     const [newPage] = await Promise.all([
       page.context().waitForEvent('page'),
-      button.click(),
+      button.click({ force: true }),
     ]);
     await newPage.waitForLoadState('domcontentloaded');
     log(`🔥 Clicked button and switched to new tab: ${newPage.url()}`);
     return newPage;
   } else {
-    await button.click();
+    await button.click({ force: true });
     log('🔥 Clicked button.');
     await button.page().waitForTimeout(2000); // Wait for action
     return null;
@@ -261,7 +261,7 @@ async function runSession() {
     const postHref = await post.getAttribute('href');
     log(`📄 Clicking on post: "${postTitle}" (${postHref})`);
     await post.scrollIntoViewIfNeeded();
-    await post.click();
+    await post.click({ force: true });
     await page.waitForLoadState('networkidle');
     log(`📍 Current page: ${page.url()}`);
 
@@ -273,7 +273,7 @@ async function runSession() {
     await dwd.scrollIntoViewIfNeeded();
     const [tab] = await Promise.all([
       context.waitForEvent('page'),
-      dwd.click()
+      dwd.click({ force: true })
     ]);
     log(`📍 New tab opened: ${tab.url()}`);
 
@@ -289,14 +289,23 @@ async function runSession() {
         break;
       }
 
-      if (url.includes('arolinks.com')) {
-        log('🕵️‍♂️ arolinks.com detected, using advanced button clicker...');
+      // A more aggressive loop for arolinks
+      while (activePage.url().includes('arolinks.com') && RUNNING) {
+        log('🕵️‍♂️ arolinks.com detected, searching for buttons...');
         const result = await findAndClickButton(
           activePage,
           ['#btn6', '#btn7', 'a#get-link'],
           { expectNewPage: true }
         );
+
+        // Update the active page, which might have changed
         activePage = result.page;
+
+        // If no button was clicked in this iteration, wait a bit before retrying
+        if (!result.clicked) {
+          await sleep(POLL_INTERVAL);
+        }
+        // If a button was clicked, loop immediately to check the new page state
       }
 
       await sleep(POLL_INTERVAL);
