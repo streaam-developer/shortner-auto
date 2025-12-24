@@ -151,7 +151,17 @@ async function runSession() {
     SESSION_COUNT++;
     log(`▶ SESSION ${SESSION_COUNT} START`);
 
-    await page.goto(HOME_URL, { waitUntil: 'domcontentloaded' });
+    let retries = 3;
+    for (let i = 0; i < retries; i++) {
+      try {
+        await page.goto(HOME_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        break;
+      } catch (e) {
+        if (i === retries - 1) throw e;
+        log(`Retry ${i+1} failed: ${e.message}`);
+        await sleep(5000);
+      }
+    }
 
     const post = (await page.$$('article.post h3.entry-title a'))[0];
     await post.click();
