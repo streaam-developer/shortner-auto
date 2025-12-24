@@ -59,10 +59,12 @@ async function randomScroll(page) {
 async function safeClick(page, selector, label, force = false) {
   try {
     const el = page.locator(selector).first();
-    await el.waitFor({ timeout: 2000 }).catch(() => {});
-    if (!(await el.isVisible())) {
-      log(`${label} element not visible after 5s wait`);
-      return false;
+    if (!force) {
+      await el.waitFor({ timeout: 2000 }).catch(() => {});
+      if (!(await el.isVisible())) {
+        log(`${label} element not visible after 5s wait`);
+        return false;
+      }
     }
 
     // Remove overlays/iframes
@@ -224,6 +226,17 @@ async function runSession() {
         }
 
         await randomMouseMove(activePage);
+
+        // Click here link
+        if (await safeClick(
+          activePage,
+          'a:has-text("click here")',
+          'Click Here',
+          true
+        )) {
+          await sleep(POLL_INTERVAL);
+          continue;
+        }
 
         // 🔥 AROLINKS GET LINK (dZJjx FIX + NEW TAB)
         if (url.includes('arolinks.com')) {
