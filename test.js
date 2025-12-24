@@ -221,43 +221,43 @@ async function runSession() {
       }
 
       if (url.includes('arolinks.com')) {
-        // Try to click buttons in sequence using evaluate
+        // Advanced click using dispatchEvent
         const verifyClicked = await activePage.evaluate(() => {
           const btn = document.getElementById('btn6');
-          if (btn && btn.offsetParent !== null) { // visible
-            btn.click();
+          if (btn && btn.offsetParent !== null) {
+            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
             return true;
           }
           return false;
         });
         if (verifyClicked) {
-          log('🔥 Clicked Verify button');
+          log('🔥 Dispatched click on Verify button');
           await sleep(2000);
         }
 
         const continueClicked = await activePage.evaluate(() => {
           const btn = document.getElementById('btn7');
           if (btn && btn.offsetParent !== null) {
-            btn.click();
+            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
             return true;
           }
           return false;
         });
         if (continueClicked) {
-          log('🔥 Clicked Continue button');
+          log('🔥 Dispatched click on Continue button');
           await sleep(2000);
         }
 
         const linkClicked = await activePage.evaluate(() => {
           const a = document.querySelector('a#get-link');
           if (a && a.offsetParent !== null) {
-            window.open(a.href, '_blank');
+            a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
             return true;
           }
           return false;
         });
         if (linkClicked) {
-          log('🔥 Opened Get Link');
+          log('🔥 Dispatched click on Get Link');
           const newTab = await context.waitForEvent('page');
           activePage = newTab;
           await activePage.waitForLoadState('domcontentloaded');
