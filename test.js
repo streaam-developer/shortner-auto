@@ -102,42 +102,111 @@ WebGLRenderingContext.prototype.getParameter = function(p){
 };
 `;
 
-// ================= AROLINKS HARD FIX =================
-async function forceArolinks(context, page) {
-  // Click Verify button if present
-  try {
-    await page.waitForSelector('#btn6', { timeout: 5000 });
-    await page.click('#btn6');
-    log('🔥 Clicked Verify button');
-    await sleep(2000); // Wait for action
-  } catch (e) {
-    // Button not present or not clickable
+
+
+// ================= ADVANCED BUTTON CLICKER =================
+
+/**
+ * Clicks a button and optionally waits for a new page to open.
+ * @param {import('playwright').ElementHandle} button - The button element to click.
+ * @param {Object} [options]
+ * @param {boolean} [options.expectNewPage=false] - Whether to wait for a new page to open.
+ * @param {import('playwright').BrowserContext} [options.context] - The browser context, required if expectNewPage is true.
+ * @returns {Promise<import('playwright').Page|null>} - The new page if one opened, otherwise null.
+ */
+async function clickButton(button, options = {}) {
+  const { expectNewPage = false, context } = options;
+  if (expectNewPage && !context) {
+    throw new Error('Browser context must be provided when expecting a new page.');
   }
 
-  // Click Continue button if present
-  try {
-    await page.waitForSelector('#btn7', { timeout: 5000 });
-    await page.click('#btn7');
-    log('🔥 Clicked Continue button');
-    await sleep(2000); // Wait for navigation
-  } catch (e) {
-    // Button not present or not clickable
-  }
+  log(`🔥 Clicking button with selector...`);
 
-  // Click Get Link button if present
-  try {
-    await page.waitForSelector('a#get-link', { timeout: 5000 });
-    const [newTab] = await Promise.all([
-      context.waitForEvent('page'),
-      page.click('a#get-link')
+  if (expectNewPage) {
+    const page = button.page();
+    const [newPage] = await Promise.all([
+      page.context().waitForEvent('page'),
+      button.click(),
     ]);
-    log(`🔥 Clicked Get Link button`);
-    await newTab.waitForLoadState('domcontentloaded');
-    return newTab;
-  } catch (e) {
-    log('⚠ Get Link button not clickable');
+    await newPage.waitForLoadState('domcontentloaded');
+    log(`🔥 Clicked button and switched to new tab: ${newPage.url()}`);
+    return newPage;
+  } else {
+    await button.click();
+    log('🔥 Clicked button.');
+    await button.page().waitForTimeout(2000); // Wait for action
     return null;
   }
+}
+
+/**
+ * Finds and clicks a button based on a list of selectors, with advanced options.
+ * This is the "Most Advance and Advance Button Clicker".
+ * It can search in the main page and also inside iframes.
+ *
+ * @param {import('playwright').Page} page - The page to search on.
+ * @param {string[]} selectors - An array of selectors to try.
+ * @param {Object} [options]
+ * @param {number} [options.timeout=5000] - Timeout in ms to find the button.
+ * @param {boolean} [options.expectNewPage=false] - Whether to wait for a new page to open.
+ * @returns {Promise<{page: import('playwright').Page, clicked: boolean}>} - The new active page and whether a button was clicked.
+ */
+async function findAndClickButton(page, selectors, options = {}) {
+  const { timeout = 5000, expectNewPage = false } = options;
+  const context = page.context();
+
+  let buttonClicked = false;
+  let activePage = page;
+
+  for (const selector of selectors) {
+    let button = null;
+
+    // Search on the main page
+    try {
+      await page.waitForSelector(selector, { timeout, state: 'visible' });
+      button = await page.$(selector);
+      if (button) {
+        log(`🔍 Found button with selector "${selector}" on the main page.`);
+        const newPage = await clickButton(button, { expectNewPage, context });
+        if (newPage) {
+          activePage = newPage;
+        }
+        buttonClicked = true;
+        break; // Exit loop once a button is clicked
+      }
+    } catch (e) {
+      // Not found on main page, continue
+    }
+
+    // Search in iframes
+    if (!button) {
+      for (const frame of page.frames()) {
+        try {
+          // Shorter timeout for frames to avoid long waits
+          await frame.waitForSelector(selector, { timeout: 1000, state: 'visible' });
+          button = await frame.$(selector);
+          if (button) {
+            log(`🔍 Found button with selector "${selector}" in an iframe.`);
+            const newPage = await clickButton(button, { expectNewPage, context });
+            if (newPage) {
+              activePage = newPage;
+            }
+            buttonClicked = true;
+            break; // Exit inner frame loop
+          }
+        } catch (e) {
+          // Not found in this frame, continue
+        }
+      }
+    }
+    if(buttonClicked) break; // Exit outer selector loop
+  }
+
+  if (!buttonClicked) {
+    log(`🤷 Button with selectors [${selectors.join(', ')}] not found.`);
+  }
+
+  return { page: activePage, clicked: buttonClicked };
 }
 
 // ================= SESSION =================
@@ -221,51 +290,13 @@ async function runSession() {
       }
 
       if (url.includes('arolinks.com')) {
-        // Search and click buttons, including inside iframes
-        const buttonsClicked = await activePage.evaluate(() => {
-          function clickIfVisible(el) {
-            if (el && el.offsetParent !== null) {
-              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-              return true;
-            }
-            return false;
-          }
-
-          let clicked = false;
-          // Main document
-          clicked = clickIfVisible(document.getElementById('btn6')) || clicked;
-          clicked = clickIfVisible(document.getElementById('btn7')) || clicked;
-          clicked = clickIfVisible(document.querySelector('a#get-link')) || clicked;
-
-          // Inside iframes
-          const iframes = document.querySelectorAll('iframe');
-          for (const iframe of iframes) {
-            try {
-              const doc = iframe.contentDocument || iframe.contentWindow.document;
-              clicked = clickIfVisible(doc.getElementById('btn6')) || clicked;
-              clicked = clickIfVisible(doc.getElementById('btn7')) || clicked;
-              clicked = clickIfVisible(doc.querySelector('a#get-link')) || clicked;
-            } catch (e) {}
-          }
-
-          return clicked;
-        });
-        if (buttonsClicked) {
-          log('🔥 Clicked available buttons on arolinks (including iframes)');
-          await sleep(2000);
-          // Check if new tab opened
-          try {
-            const newTab = await Promise.race([
-              context.waitForEvent('page', { timeout: 1000 }),
-              Promise.resolve(null)
-            ]);
-            if (newTab) {
-              activePage = newTab;
-              await activePage.waitForLoadState('domcontentloaded');
-              log('🔥 Switched to new tab');
-            }
-          } catch (e) {}
-        }
+        log('🕵️‍♂️ arolinks.com detected, using advanced button clicker...');
+        const result = await findAndClickButton(
+          activePage,
+          ['#btn6', '#btn7', 'a#get-link'],
+          { expectNewPage: true }
+        );
+        activePage = result.page;
       }
 
       await sleep(POLL_INTERVAL);
