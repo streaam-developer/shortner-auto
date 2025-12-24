@@ -4,7 +4,6 @@ const fs = require('fs');
 
 const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
-const POLL_INTERVAL = 2000;
 
 // ================= PROXY CONFIG =================
 const PROXY_ENABLED = false; // false to disable
