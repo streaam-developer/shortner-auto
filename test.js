@@ -120,20 +120,46 @@ async function clickButton(button, options = {}) {
     throw new Error('Browser context must be provided when expecting a new page.');
   }
 
-  log(`🔥 Clicking button with selector...`);
+  log('🔥 Forcefully clicking button using multiple methods...');
+
+  const performClick = async () => {
+    try {
+      await button.click({ force: true, timeout: 2000 });
+      log('✓ Method 1: Playwright click({force: true}) succeeded.');
+      return;
+    } catch (e) {
+      log('... Method 1 failed, trying next.');
+    }
+
+    try {
+      await button.dispatchEvent('click');
+      log('✓ Method 2: dispatchEvent("click") succeeded.');
+      return;
+    } catch (e) {
+      log('... Method 2 failed, trying next.');
+    }
+    
+    try {
+      await button.evaluate(node => node.click());
+      log('✓ Method 3: evaluate(node => node.click()) succeeded.');
+      return;
+    } catch (e) {
+        log('... Method 3 failed.');
+        throw new Error('All forceful click methods failed.');
+    }
+  };
 
   if (expectNewPage) {
     const page = button.page();
     const [newPage] = await Promise.all([
       page.context().waitForEvent('page'),
-      button.click({ force: true }),
+      performClick(),
     ]);
     await newPage.waitForLoadState('domcontentloaded');
     log(`🔥 Clicked button and switched to new tab: ${newPage.url()}`);
     return newPage;
   } else {
-    await button.click({ force: true });
-    log('🔥 Clicked button.');
+    await performClick();
     await button.page().waitForTimeout(2000); // Wait for action
     return null;
   }
