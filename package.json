@@ -1,0 +1,25 @@
+{
+  "name": "shortner-auto",
+  "version": "1.0.0",
+  "description": "",
+  "main": "mobile_qa_automation_final.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/streaam-developer/shortner-auto.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/streaam-developer/shortner-auto/issues"
+  },
+  "homepage": "https://github.com/streaam-developer/shortner-auto#readme",
+  "dependencies": {
+    "playwright": "^1.57.0",
+    "playwright-stealth": "^0.0.1"
+  }
+}

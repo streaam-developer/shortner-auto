@@ -1,4 +1,5 @@
 const { chromium } = require('playwright');
+const { stealth } = require('playwright-stealth');
 const fs = require('fs');
 
 const HOME_URL = 'https://yomovies.delivery';
@@ -162,13 +163,22 @@ async function runSession() {
   });
   if (proxy) log(`Using proxy: ${proxy}`);
 
-  const context = await browser.newContext({
+  let contextOptions = {
     viewport: { width: 360, height: 740 },
     isMobile: true,
     hasTouch: true,
-    userAgent:
-      'Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
-  });
+    userAgent: 'Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+  };
+
+  if (proxy) {
+    contextOptions.geolocation = { latitude: 19.0760, longitude: 72.8777 };
+    contextOptions.locale = 'en-IN';
+    contextOptions.timezoneId = 'Asia/Kolkata';
+    contextOptions.permissions = ['geolocation'];
+  }
+
+  const context = await browser.newContext(contextOptions);
+  await stealth(context);
 
   const page = await context.newPage();
 
@@ -209,6 +219,7 @@ async function runSession() {
         // FINAL EXIT
         if (url.includes('webdb.store')) {
           log('webdb.store reached');
+          await safeClick(activePage, 'a[id="get-link"]', 'Get Final Link');
           await sleep(WAIT_AFTER_WEBDB);
           break;
         }
