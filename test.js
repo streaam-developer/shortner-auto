@@ -175,17 +175,23 @@ async function runSession() {
       }
     }
 
+    await page.waitForSelector('article.post h3.entry-title a');
     const post = (await page.$$('article.post h3.entry-title a'))[0];
+    if (!post) throw new Error('Post link not found');
     const postTitle = await post.innerText();
     const postHref = await post.getAttribute('href');
-    log(`📄 Clicked on post: "${postTitle}" (${postHref})`);
+    log(`📄 Clicking on post: "${postTitle}" (${postHref})`);
+    await post.scrollIntoViewIfNeeded();
     await post.click();
     await page.waitForLoadState('networkidle');
     log(`📍 Current page: ${page.url()}`);
 
+    await page.waitForSelector('.dwd-button');
     const dwd = (await page.$$('.dwd-button'))[0];
+    if (!dwd) throw new Error('Download button not found');
     const dwdText = await dwd.innerText();
-    log(`⬇️ Clicked download button: "${dwdText}"`);
+    log(`⬇️ Clicking download button: "${dwdText}"`);
+    await dwd.scrollIntoViewIfNeeded();
     const [tab] = await Promise.all([
       context.waitForEvent('page'),
       dwd.click()
