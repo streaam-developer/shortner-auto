@@ -5,13 +5,13 @@ const fs = require('fs');
 const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 1000;
-const USE_PROXY = false; // Set to false to disable proxy usage
-const HEADLESS = false; // Set to false to run in visible mode
+
+const USE_PROXY = false;   // true = enable proxy
+const HEADLESS = false;   // true = headless
 
 // ================= PROXY CONFIG =================
 const PROXIES = [
-  'http://user:pass@45.90.12.22:8000',
-  // add more if you want
+  'http://user:pass@45.90.12.22:8000'
 ];
 
 function getRandomProxy() {
@@ -39,225 +39,129 @@ process.on('SIGINT', () => {
 // ================= IP → FINGERPRINT =================
 async function getIPProfile(proxy) {
   if (!proxy) {
-    log('🌍 No proxy, using default profile');
-    return {
-      timezone: 'UTC',
-      locale: 'en-US'
-    };
+    return { timezone: 'UTC', locale: 'en-US' };
   }
 
   try {
+    const p = proxy.split('@').pop();
+    const [host, port] = p.split(':');
+
     const res = await axios.get('http://ip-api.com/json', {
-      proxy: {
-        protocol: 'http',
-        host: proxy.split('@').pop().split(':')[0],
-        port: proxy.split(':').pop(),
-        auth: proxy.includes('@')
-          ? {
-              username: proxy.split('//')[1].split(':')[0],
-              password: proxy.split('//')[1].split(':')[1].split('@')[0]
-            }
-          : undefined
-      },
+      proxy: { protocol: 'http', host, port },
       timeout: 8000
     });
 
     const d = res.data;
-
-    log(`🌍 IP detected: ${d.country} | ${d.city} | ${d.timezone}`);
-
     return {
-      country: d.countryCode,
       timezone: d.timezone,
+      locale: d.countryCode === 'IN' ? 'en-IN' : 'en-US',
       lat: d.lat,
-      lon: d.lon,
-      locale: d.countryCode === 'IN' ? 'en-IN'
-            : d.countryCode === 'US' ? 'en-US'
-            : 'en-US'
+      lon: d.lon
     };
-  } catch (e) {
-    log('⚠ IP lookup failed, using safe defaults');
-    return {
-      timezone: 'UTC',
-      locale: 'en-US'
-    };
+  } catch {
+    return { timezone: 'UTC', locale: 'en-US' };
   }
 }
 
-// ================= STEALTH =================
+// ================= STEALTH SCRIPT =================
 const stealthScript = `
 Object.defineProperty(navigator, 'webdriver', { get: () => false });
 window.chrome = { runtime: {} };
-Object.defineProperty(navigator, 'languages', {
-  get: () => ['en-US','en']
-});
-Object.defineProperty(navigator, 'plugins', {
-  get: () => [1,2,3,4,5]
-});
-const getParameter = WebGLRenderingContext.prototype.getParameter;
+Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
+Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+
+const gl = WebGLRenderingContext.prototype.getParameter;
 WebGLRenderingContext.prototype.getParameter = function(p){
   if (p === 37445) return 'Intel Inc.';
-  if (p === 37446) return 'Intel Iris OpenGL Engine';
-  return getParameter.call(this, p);
+  if (p === 37446) return 'Intel Iris OpenGL';
+  return gl.call(this, p);
 };
 `;
 
-
-
-// ================= ADVANCED BUTTON CLICKER =================
-
-/**
- * Clicks a button and optionally waits for a new page to open.
- * @param {import('playwright').ElementHandle} button - The button element to click.
- * @param {Object} [options]
- * @param {boolean} [options.expectNewPage=false] - Whether to wait for a new page to open.
- * @param {import('playwright').BrowserContext} [options.context] - The browser context, required if expectNewPage is true.
- * @returns {Promise<import('playwright').Page|null>} - The new page if one opened, otherwise null.
- */
+// ================= ULTIMATE CLICKER =================
 async function clickButton(button, options = {}) {
   const { expectNewPage = false, context } = options;
-  if (expectNewPage && !context) {
-    throw new Error('Browser context must be provided when expecting a new page.');
-  }
+  const page = button.page();
 
-  log('🔥 Forcefully clicking button using multiple methods...');
+  const attack = async () => {
+    await button.evaluate(el => {
+      el.disabled = false;
+      el.style.display = 'block';
+      el.style.visibility = 'visible';
+      el.style.opacity = '1';
+      el.style.pointerEvents = 'auto';
+      el.scrollIntoView({ block: 'center' });
+    });
 
-  const performClick = async () => {
-    try {
-      await button.click({ force: true, timeout: 2000 });
-      log('✓ Method 1: Playwright click({force: true}) succeeded.');
-      return;
-    } catch (e) {
-      log('... Method 1 failed, trying next.');
-    }
+    await page.evaluate(() => {
+      document.querySelectorAll('*').forEach(el => {
+        const z = getComputedStyle(el).zIndex;
+        if (z !== 'auto' && +z > 9999) el.remove();
+      });
+    });
 
-    try {
-      await button.dispatchEvent('click');
-      log('✓ Method 2: dispatchEvent("click") succeeded.');
-      return;
-    } catch (e) {
-      log('... Method 2 failed, trying next.');
-    }
-    
-    try {
-      await button.evaluate(node => node.click());
-      log('✓ Method 3: evaluate(node => node.click()) succeeded.');
-      return;
-    } catch (e) {
-        log('... Method 3 failed, trying next.');
-    }
+    await button.evaluate(el => {
+      const r = el.getBoundingClientRect();
+      const ev = t => new MouseEvent(t, {
+        bubbles: true,
+        clientX: r.left + r.width/2,
+        clientY: r.top + r.height/2
+      });
+      el.dispatchEvent(ev('mousedown'));
+      el.dispatchEvent(ev('mouseup'));
+      el.dispatchEvent(ev('click'));
+    });
 
-    try {
-      const onclick = await button.getAttribute('onclick');
-      if (onclick) {
-        log(`... Trying Method 4: evaluate with onclick attribute: ${onclick}`);
-        await button.page().evaluate(onclick);
-        log('✓ Method 4: evaluate(onclick) succeeded.');
-        return;
-      }
-    } catch (e) {
-        log('... Method 4 failed.');
-    }
+    const onclick = await button.getAttribute('onclick');
+    if (onclick) await page.evaluate(code => eval(code), onclick);
 
-    throw new Error('All forceful click methods failed.');
+    const href = await button.getAttribute('href');
+    if (href) await page.evaluate(url => location.href = url, href);
   };
 
   if (expectNewPage) {
-    const page = button.page();
-    const [newPage] = await Promise.all([
-      page.context().waitForEvent('page'),
-      performClick(),
+    const [p] = await Promise.all([
+      context.waitForEvent('page').catch(() => null),
+      attack()
     ]);
-    await newPage.waitForLoadState('domcontentloaded');
-    log(`🔥 Clicked button and switched to new tab: ${newPage.url()}`);
-    return newPage;
+    if (p) {
+      await p.waitForLoadState('domcontentloaded');
+      return p;
+    }
+    return null;
   } else {
-    await performClick();
-    await button.page().waitForTimeout(2000); // Wait for action
+    await attack();
     return null;
   }
 }
 
-/**
- * Finds and clicks a button based on a list of selectors, with advanced options.
- * This is the "Most Advance and Advance Button Clicker".
- * It can search in the main page and also inside iframes.
- *
- * @param {import('playwright').Page} page - The page to search on.
- * @param {string[]} selectors - An array of selectors to try.
- * @param {Object} [options]
- * @param {number} [options.timeout=5000] - Timeout in ms to find the button.
- * @param {boolean} [options.expectNewPage=false] - Whether to wait for a new page to open.
- * @returns {Promise<{page: import('playwright').Page, clicked: boolean}>} - The new active page and whether a button was clicked.
- */
-async function findAndClickButton(page, selectors, options = {}) {
-  const { timeout = 5000, expectNewPage = false } = options;
-  const context = page.context();
-
-  let buttonClicked = false;
-  let activePage = page;
-
-  for (const selector of selectors) {
-    let button = null;
-
-    // Search on the main page
+// ================= FIND & CLICK =================
+async function findAndClickButton(page, selectors, opts = {}) {
+  for (const sel of selectors) {
     try {
-      await page.waitForSelector(selector, { timeout, state: 'visible' });
-      button = await page.$(selector);
-      if (button) {
-        log(`🔍 Found button with selector "${selector}" on the main page.`);
-        const newPage = await clickButton(button, { expectNewPage, context });
-        if (newPage) {
-          activePage = newPage;
-        }
-        buttonClicked = true;
-        break; // Exit loop once a button is clicked
+      await page.waitForSelector(sel, { timeout: 2000 });
+      const btn = await page.$(sel);
+      if (btn) {
+        const newPage = await clickButton(btn, {
+          expectNewPage: opts.expectNewPage,
+          context: page.context()
+        });
+        return { page: newPage || page, clicked: true };
       }
-    } catch (e) {
-      // Not found on main page, continue
-    }
-
-    // Search in iframes
-    if (!button) {
-      for (const frame of page.frames()) {
-        try {
-          // Shorter timeout for frames to avoid long waits
-          await frame.waitForSelector(selector, { timeout: 1000, state: 'visible' });
-          button = await frame.$(selector);
-          if (button) {
-            log(`🔍 Found button with selector "${selector}" in an iframe.`);
-            const newPage = await clickButton(button, { expectNewPage, context });
-            if (newPage) {
-              activePage = newPage;
-            }
-            buttonClicked = true;
-            break; // Exit inner frame loop
-          }
-        } catch (e) {
-          // Not found in this frame, continue
-        }
-      }
-    }
-    if(buttonClicked) break; // Exit outer selector loop
+    } catch {}
   }
-
-  if (!buttonClicked) {
-    log(`🤷 Button with selectors [${selectors.join(', ')}] not found.`);
-  }
-
-  return { page: activePage, clicked: buttonClicked };
+  return { page, clicked: false };
 }
 
 // ================= SESSION =================
 async function runSession() {
   const proxy = USE_PROXY ? getRandomProxy() : null;
-  log(`🔗 Proxy: ${proxy ? proxy : 'Disabled'}`);
   const profile = await getIPProfile(proxy);
 
   const browser = await chromium.launch({
     headless: HEADLESS,
-    args: ['--disable-blink-features=AutomationControlled'],
-    proxy: proxy ? { server: proxy } : undefined
+    proxy: proxy ? { server: proxy } : undefined,
+    args: ['--disable-blink-features=AutomationControlled']
   });
 
   const context = await browser.newContext({
@@ -280,71 +184,36 @@ async function runSession() {
     SESSION_COUNT++;
     log(`▶ SESSION ${SESSION_COUNT} START`);
 
-    let retries = 3;
-    for (let i = 0; i < retries; i++) {
-      try {
-        await page.goto(HOME_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        log(`✅ Navigated to ${HOME_URL}`);
-        break;
-      } catch (e) {
-        if (i === retries - 1) throw e;
-        log(`Retry ${i+1} failed: ${e.message}`);
-        await sleep(5000);
-      }
-    }
+    await page.goto(HOME_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
     await page.waitForSelector('article.post h3.entry-title a');
     const post = (await page.$$('article.post h3.entry-title a'))[0];
-    if (!post) throw new Error('Post link not found');
-    const postTitle = await post.innerText();
-    const postHref = await post.getAttribute('href');
-    log(`📄 Clicking on post: "${postTitle}" (${postHref})`);
-    await post.scrollIntoViewIfNeeded();
     await post.click({ force: true });
-    await page.waitForLoadState('networkidle');
-    log(`📍 Current page: ${page.url()}`);
 
     await page.waitForSelector('.dwd-button');
     const dwd = (await page.$$('.dwd-button'))[0];
-    if (!dwd) throw new Error('Download button not found');
-    const dwdText = await dwd.innerText();
-    log(`⬇️ Clicking download button: "${dwdText}"`);
-    await dwd.scrollIntoViewIfNeeded();
+
     const [tab] = await Promise.all([
       context.waitForEvent('page'),
       dwd.click({ force: true })
     ]);
-    log(`📍 New tab opened: ${tab.url()}`);
 
     let activePage = tab;
     await activePage.waitForLoadState('domcontentloaded');
 
     while (RUNNING) {
-      const url = activePage.url();
-
-      if (url.includes('webdb.store')) {
-        log('✅ webdb.store reached');
+      if (activePage.url().includes('webdb.store')) {
         await sleep(WAIT_AFTER_WEBDB);
         break;
       }
 
-      // A more aggressive loop for arolinks
-      while (activePage.url().includes('arolinks.com') && RUNNING) {
-        log('🕵️‍♂️ arolinks.com detected, searching for buttons...');
-        const result = await findAndClickButton(
+      if (activePage.url().includes('arolinks.com')) {
+        const r = await findAndClickButton(
           activePage,
-          ['#btn6', '#btn7', 'a#get-link', 'button:has-text("Verify")'],
+          ['#btn6', '#btn7', '#get-link', 'button:has-text("Verify")'],
           { expectNewPage: true }
         );
-
-        // Update the active page, which might have changed
-        activePage = result.page;
-
-        // If no button was clicked in this iteration, wait a bit before retrying
-        if (!result.clicked) {
-          await sleep(POLL_INTERVAL);
-        }
-        // If a button was clicked, loop immediately to check the new page state
+        activePage = r.page;
       }
 
       await sleep(POLL_INTERVAL);
@@ -361,6 +230,6 @@ async function runSession() {
 
 // ================= RUNNER =================
 (async () => {
-  log('🚀 AUTO-FINGERPRINT STEALTH MODE STARTED');
+  log('🚀 AUTO STEALTH STARTED');
   while (RUNNING) await runSession();
 })();
