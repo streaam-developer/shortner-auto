@@ -105,58 +105,39 @@ WebGLRenderingContext.prototype.getParameter = function(p){
 // ================= AROLINKS HARD FIX =================
 async function forceArolinks(context, page) {
   // Click Verify button if present
-  const verifyClicked = await page.evaluate(() => {
-    const btn = document.getElementById('btn6');
-    if (btn && btn.style.display !== 'none') {
-      btn.click();
-      return true;
-    }
-    return false;
-  });
-  if (verifyClicked) {
+  try {
+    await page.waitForSelector('#btn6', { timeout: 5000 });
+    await page.click('#btn6');
     log('🔥 Clicked Verify button');
     await sleep(2000); // Wait for action
+  } catch (e) {
+    // Button not present or not clickable
   }
 
   // Click Continue button if present
-  const continueClicked = await page.evaluate(() => {
-    const btn = document.getElementById('btn7');
-    if (btn && btn.style.display !== 'none') {
-      btn.click();
-      return true;
-    }
-    return false;
-  });
-  if (continueClicked) {
+  try {
+    await page.waitForSelector('#btn7', { timeout: 5000 });
+    await page.click('#btn7');
     log('🔥 Clicked Continue button');
     await sleep(2000); // Wait for navigation
+  } catch (e) {
+    // Button not present or not clickable
   }
 
-  // Now get the get-link
-  const href = await page.evaluate(() => {
-    const a = document.querySelector('a#get-link');
-    if (!a) return null;
-    a.style.pointerEvents = 'auto';
-    a.style.display = 'block';
-    return a.href;
-  });
-
-  if (!href) return null;
-
-  log(`🔥 FORCE OPEN → ${href}`);
-
-  const [newTab] = await Promise.all([
-    context.waitForEvent('page').catch(() => null),
-    page.evaluate(u => window.open(u, '_blank'), href)
-  ]);
-
-  if (newTab) {
+  // Click Get Link button if present
+  try {
+    await page.waitForSelector('a#get-link', { timeout: 5000 });
+    const [newTab] = await Promise.all([
+      context.waitForEvent('page'),
+      page.click('a#get-link')
+    ]);
+    log(`🔥 Clicked Get Link button`);
     await newTab.waitForLoadState('domcontentloaded');
     return newTab;
+  } catch (e) {
+    log('⚠ Get Link button not clickable');
+    return null;
   }
-
-  await page.goto(href, { waitUntil: 'domcontentloaded' });
-  return page;
 }
 
 // ================= SESSION =================
