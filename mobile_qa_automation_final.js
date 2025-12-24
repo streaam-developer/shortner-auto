@@ -3,7 +3,7 @@ const fs = require('fs');
 
 const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
-const POLL_INTERVAL = 1000;
+const POLL_INTERVAL = 500;
 
 // ================= PROXY CONFIG =================
 const PROXY_ENABLED = false; // false to disable
@@ -335,6 +335,20 @@ async function runSession() {
           'Force Continue',
           !url.includes('arolinks.com')
         )) {
+          await sleep(POLL_INTERVAL);
+          continue;
+        }
+
+        // New buttons parallel
+        const newSelectors = [
+          { selector: 'button#btn6.btn-hover.color-9:has-text("Continue")', label: 'Continue btn6 color-9', force: !url.includes('arolinks.com') },
+          { selector: 'button#btn6.btn-hover.color-11:has-text("Continue Next")', label: 'Continue Next', force: !url.includes('arolinks.com') },
+          { selector: 'button[onclick="scrol()"]:has-text("Verify Link")', label: 'Verify Link onclick', force: true },
+          { selector: 'button:has-text("Go Next")', label: 'Go Next', force: !url.includes('arolinks.com') },
+          { selector: 'button#btn6.btn-hover.color-11:has-text("Get Link")', label: 'Get Link btn6 color-11', force: false }
+        ];
+        const results = await Promise.allSettled(newSelectors.map(({selector, label, force}) => safeClick(activePage, selector, label, force)));
+        if (results.some(r => r.status === 'fulfilled' && r.value)) {
           await sleep(POLL_INTERVAL);
           continue;
         }
