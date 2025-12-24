@@ -221,46 +221,44 @@ async function runSession() {
       }
 
       if (url.includes('arolinks.com')) {
-        // Advanced click using dispatchEvent
-        const verifyClicked = await activePage.evaluate(() => {
-          const btn = document.getElementById('btn6');
-          if (btn && btn.offsetParent !== null) {
-            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            return true;
+        // Continuously search and click buttons
+        const buttonsClicked = await activePage.evaluate(() => {
+          let clicked = false;
+          // Click Verify
+          const btn6 = document.getElementById('btn6');
+          if (btn6 && btn6.offsetParent !== null) {
+            btn6.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            clicked = true;
           }
-          return false;
+          // Click Continue
+          const btn7 = document.getElementById('btn7');
+          if (btn7 && btn7.offsetParent !== null) {
+            btn7.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            clicked = true;
+          }
+          // Click Get Link
+          const getLink = document.querySelector('a#get-link');
+          if (getLink && getLink.offsetParent !== null) {
+            getLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            clicked = true;
+          }
+          return clicked;
         });
-        if (verifyClicked) {
-          log('🔥 Dispatched click on Verify button');
+        if (buttonsClicked) {
+          log('🔥 Clicked available buttons on arolinks');
           await sleep(2000);
-        }
-
-        const continueClicked = await activePage.evaluate(() => {
-          const btn = document.getElementById('btn7');
-          if (btn && btn.offsetParent !== null) {
-            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            return true;
-          }
-          return false;
-        });
-        if (continueClicked) {
-          log('🔥 Dispatched click on Continue button');
-          await sleep(2000);
-        }
-
-        const linkClicked = await activePage.evaluate(() => {
-          const a = document.querySelector('a#get-link');
-          if (a && a.offsetParent !== null) {
-            a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            return true;
-          }
-          return false;
-        });
-        if (linkClicked) {
-          log('🔥 Dispatched click on Get Link');
-          const newTab = await context.waitForEvent('page');
-          activePage = newTab;
-          await activePage.waitForLoadState('domcontentloaded');
+          // Check if new tab opened
+          try {
+            const newTab = await Promise.race([
+              context.waitForEvent('page', { timeout: 1000 }),
+              new Promise(resolve => setTimeout(resolve, 1000))
+            ]);
+            if (newTab) {
+              activePage = newTab;
+              await activePage.waitForLoadState('domcontentloaded');
+              log('🔥 Switched to new tab');
+            }
+          } catch (e) {}
         }
       }
 
