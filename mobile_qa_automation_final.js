@@ -4,7 +4,7 @@ const buttonSelectors = require('./selectors');
 
 const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
-const POLL_INTERVAL = 500;
+const POLL_INTERVAL = 1000;
 
 // ================= PROXY CONFIG =================
 const PROXY_ENABLED = true; // true to enable
