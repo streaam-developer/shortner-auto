@@ -73,8 +73,8 @@ async function handleClicks(page, context) {
             log(`Current URL: ${url}`);
             
             if (url.includes('webdb.store')) {
-                log('webdb.store page reached. Attempting to get final link and then exiting.');
-                await safeClick(activePage, 'a[id="get-link"]', 'Get Final Link');
+                log('webdb.store page reached. Short link obtained: ' + url);
+                fs.appendFileSync('short_links.txt', url + '\n');
                 await sleep(WAIT_AFTER_WEBDB);
                 return; // Exit handleClicks, which will lead to session close.
             }
