@@ -7,6 +7,9 @@ const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 500;
 
+// Headless mode: default false, enable with --headless flag
+const headless = process.argv.includes('--headless');
+
 // ================= PROXY CONFIG =================
 const PROXY_ENABLED = true; // true to enable
 const PROXIES = fs.readFileSync('proxy.txt', 'utf8')
@@ -216,7 +219,7 @@ async function runSession(sessionId) {
   const proxy = getRandomProxy();
 
   const browser = await chromium.launch({
-    headless: false,
+    headless: headless,
     proxy: proxy
       ? {
           server: proxy.split('@').pop(),
