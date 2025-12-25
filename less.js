@@ -7,6 +7,14 @@ const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 500;
 
+// Domains where blocking should not apply (allow all requests)
+const ALLOWED_DOMAINS = [
+  'yomovies.delivery',
+  'webdb.store',
+  'arolinks.com',
+  'linkpays.in'
+];
+
 // Headless mode: default false, enable with --headless flag
 const headless = process.argv.includes('--headless');
 log(`Headless mode: ${headless}`);
@@ -282,6 +290,13 @@ async function runSession(sessionId, headless) {
   await context.route('**/*', (route) => {
     const resourceType = route.request().resourceType();
     const url = route.request().url().toLowerCase();
+    const hostname = new URL(url).hostname;
+
+    // Allow all requests on specified domains
+    if (ALLOWED_DOMAINS.some(domain => hostname.includes(domain))) {
+      route.continue();
+      return;
+    }
 
     // Block resource types
     const blockedTypes = ['image', 'media', 'font', 'websocket', 'ping', 'prefetch'];
@@ -311,7 +326,7 @@ async function runSession(sessionId, headless) {
       'googlevideo.com',
       'gstatic.com'
     ];
-    if (blockedDomains.some(domain => url.includes(domain))) {
+    if (blockedDomains.some(domain => hostname.includes(domain))) {
       route.abort();
       return;
     }
