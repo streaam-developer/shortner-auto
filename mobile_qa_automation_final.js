@@ -3,7 +3,6 @@ const fs = require('fs');
 const {
     sleep,
     log,
-    applyStealth,
     getRandomReferrer,
     randomMouseMove,
     randomScroll,
@@ -158,7 +157,12 @@ async function runSession() {
     permissions: proxy ? ['geolocation'] : [],
   });
   
-  await applyStealth(context);
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => false,
+    });
+  });
+  log('Stealth: navigator.webdriver set to false.');
   
   const page = await context.newPage();
 

@@ -1,4 +1,3 @@
-const { stealth } = require('playwright-stealth');
 const fs = require('fs');
 
 function sleep(ms) {
@@ -9,11 +8,6 @@ function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
   console.log(line);
   fs.appendFileSync('automation.log', line + '\n');
-}
-
-async function applyStealth(context) {
-  await stealth(context);
-  log('Stealth enhancements applied.');
 }
 
 function getRandomReferrer() {
@@ -107,7 +101,6 @@ async function safeClick(page, selector, label, force = false) {
 module.exports = {
     sleep,
     log,
-    applyStealth,
     getRandomReferrer,
     randomMouseMove,
     randomScroll,
