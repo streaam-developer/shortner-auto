@@ -18,10 +18,10 @@ const PROXIES = fs.readFileSync('proxy.txt', 'utf8')
     return `http://${user}:${pass}@${ip}:${port}`;
   });
 
-// Extract unique IPs from proxies
-const ALL_IPS = [...new Set(PROXIES.map(p => p.split('@')[1].split(':')[0]))];
-fs.writeFileSync('all_ips.txt', ALL_IPS.join('\n'));
-log(`Extracted ${ALL_IPS.length} unique IPs from proxies.`);
+function getRandomProxy() {
+  if (!PROXY_ENABLED || !PROXIES.length) return null;
+  return PROXIES[Math.floor(Math.random() * PROXIES.length)];
+}
 
 // ================= GLOBAL =================
 let RUNNING = true;
@@ -32,86 +32,10 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 function log(msg) {
-  const prefix = isMainThread ? '[Main]' : `[Worker ${workerData ? workerData.sessionId : 'N/A'}]`;
+  const prefix = isMainThread ? '[Main]' : `[Worker ${workerData.sessionId}]`;
   const line = `[${new Date().toISOString()}] ${prefix} ${msg}`;
   console.log(line);
   fs.appendFileSync('automation.log', line + '\n');
-}
-
-// --- PROXY MANAGEMENT FUNCTIONS ---
-function readProxyData(filePath) {
-    try {
-        if (fs.existsSync(filePath)) {
-            const data = fs.readFileSync(filePath, 'utf8');
-            return JSON.parse(data);
-        }
-    } catch (err) {
-        log(`Error reading ${filePath}: ${err.message}`);
-    }
-    return filePath.includes('used_proxies.json') ? {} : [];
-}
-
-function writeProxyData(filePath, data) {
-    try {
-        fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    } catch (err) {
-        log(`Error writing to ${filePath}: ${err.message}`);
-    }
-}
-
-function addSuccessfulIP(ip) {
-    if (!ip) return;
-    const filePath = 'successful_ips.json';
-    const successfulIPs = readProxyData(filePath);
-    if (!successfulIPs.includes(ip)) {
-        successfulIPs.push(ip);
-        writeProxyData(filePath, successfulIPs);
-        fs.appendFileSync('successful_ips.txt', ip + '\n');
-        log(`Added IP to successful list: ${ip}`);
-    }
-}
-
-function recordIPUsage(ip) {
-    if (!ip) return;
-    const filePath = 'used_ips.json';
-    const usageData = readProxyData(filePath);
-    usageData[ip] = new Date().getTime();
-    writeProxyData(filePath, usageData);
-    log(`Recorded usage for IP: ${ip}`);
-}
-// --- END PROXY MANAGEMENT FUNCTIONS ---
-
-function getRandomProxy() {
-    if (!PROXY_ENABLED || !PROXIES.length) return null;
-
-    const usageData = readProxyData('used_ips.json');
-    const now = new Date().getTime();
-    const thirtyHoursInMillis = 30 * 60 * 60 * 1000;
-
-    const availableProxies = PROXIES.filter(p => {
-        const ip = p.split('@')[1].split(':')[0];
-        const lastUsed = usageData[ip];
-        if (!lastUsed) {
-            return true; // Never used
-        }
-        const timeSinceLastUse = now - lastUsed;
-        const isAvailable = timeSinceLastUse > thirtyHoursInMillis;
-        if (!isAvailable) {
-            // This can be spammy, so commented out.
-            // log(`IP ${ip} was used within the last 30 hours. Skipping.`);
-        }
-        return isAvailable;
-    });
-
-    log(`Found ${availableProxies.length} available proxies out of ${PROXIES.length}.`);
-
-    if (availableProxies.length === 0) {
-        log('No available proxies that have not been used in the last 30 hours.');
-        return null;
-    }
-
-    const proxy = availableProxies[Math.floor(Math.random() * availableProxies.length)];
-    return proxy;
 }
 // SIGINT handling is moved to the main thread runner section.
 
@@ -281,7 +205,7 @@ async function safeClick(page, selector, label, force = false) {
 // ================= POST PICKER =================
 async function pickRandomPost(page) {
   await page.waitForLoadState('domcontentloaded');
-  const posts = await page.$('article.post h3.entry-title a');
+  const posts = await page.$$('article.post h3.entry-title a');
   if (!posts.length) throw new Error('No posts found');
   log(`Found ${posts.length} posts`);
   return posts[Math.floor(Math.random() * posts.length)];
@@ -290,14 +214,6 @@ async function pickRandomPost(page) {
 // ================= SESSION =================
 async function runSession(sessionId) {
   const proxy = getRandomProxy();
-
-  if (PROXY_ENABLED && !proxy) {
-    log('No available proxy. Waiting 5 minutes before retrying.');
-    await sleep(5 * 60 * 1000);
-    return;
-  }
-
-  const ip = proxy ? proxy.split('@')[1].split(':')[0] : null;
 
   const browser = await chromium.launch({
     headless: false,
@@ -311,7 +227,7 @@ async function runSession(sessionId) {
         }
       : undefined
   });
-  if (proxy) log(`Using proxy IP: ${ip}`);
+  if (proxy) log(`Using proxy: ${proxy.split('@')[1]}`);
 
   let contextOptions = {
     viewport: { width: 360, height: 740 },
@@ -353,7 +269,7 @@ async function runSession(sessionId) {
 
     // DWD
     await page.waitForSelector('.dwd-button', { timeout: 10000 });
-    const dwdButtons = await page.$('.dwd-button');
+    const dwdButtons = await page.$$('.dwd-button');
     if (!dwdButtons.length) throw new Error('No dwd-button found');
     const dwd = dwdButtons[Math.floor(Math.random() * dwdButtons.length)];
     const [newTab] = await Promise.all([
@@ -374,8 +290,6 @@ async function runSession(sessionId) {
         if (url.includes('webdb.store')) {
           log('webdb.store reached. Short link obtained: ' + url);
           fs.appendFileSync('short_links.txt', url + '\n');
-          addSuccessfulIP(ip);
-          recordIPUsage(ip); // Record usage only on success
           await sleep(WAIT_AFTER_WEBDB);
           break;
         }
