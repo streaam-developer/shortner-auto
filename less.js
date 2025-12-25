@@ -292,8 +292,8 @@ async function runSession(sessionId, headless) {
     const url = route.request().url().toLowerCase();
     const hostname = new URL(url).hostname;
 
-    // Allow all requests on specified domains
-    if (ALLOWED_DOMAINS.some(domain => hostname.includes(domain))) {
+    // Allow all requests on specified domains and their subdomains
+    if (ALLOWED_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain))) {
       route.continue();
       return;
     }
