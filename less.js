@@ -270,7 +270,7 @@ async function runSession(sessionId, headless) {
   const page = await context.newPage();
 
   // Stealth mode: remove automation fingerprints
-  await page.evaluateOnNewDocument(() => {
+  await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     delete navigator.__proto__.webdriver;
   });
