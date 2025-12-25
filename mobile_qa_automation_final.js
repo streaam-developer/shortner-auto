@@ -310,7 +310,7 @@ async function runSession() {
             context.waitForEvent('page').catch(() => null),
             safeClick(
               activePage,
-              'button[id="get-link"]',
+              'a[id="get-link"]',
               'Get Link',
               false // No force on arolinks
             )
