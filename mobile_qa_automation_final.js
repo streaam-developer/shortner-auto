@@ -216,8 +216,10 @@ async function pickRandomPost(page) {
 }
 
 // ================= SESSION =================
-async function runSession(sessionId) {
+async function runSession(sessionId, headless) {
   const proxy = getRandomProxy();
+
+  log(`Launching browser with headless: ${headless}`);
 
   const browser = await chromium.launch({
     headless: headless,
@@ -452,7 +454,7 @@ if (isMainThread) {
 } else {
   // Worker thread
   const { sessionId, headless } = workerData;
-  runSession(sessionId)
+  runSession(sessionId, headless)
     .catch(err => {
       log(`❌ Unhandled error in session: ${err.message}\n${err.stack}`);
       process.exit(1);
