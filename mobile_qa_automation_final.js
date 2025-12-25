@@ -399,7 +399,7 @@ async function runSession(sessionId) {
 
 // ================= RUNNER =================
 if (isMainThread) {
-  const NUM_SESSIONS = 3;
+  const NUM_SESSIONS = 1;
   log(`🚀 Automation started. Launching ${NUM_SESSIONS} parallel sessions.`);
 
   const workers = new Map();
