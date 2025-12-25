@@ -223,6 +223,21 @@ async function runSession(sessionId, headless) {
 
   const browser = await chromium.launch({
     headless: headless,
+    args: [
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-sync',
+      '--disable-translate',
+      '--hide-scrollbars',
+      '--metrics-recording-only',
+      '--mute-audio',
+      '--no-first-run',
+      '--safebrowsing-disable-auto-update',
+      '--disable-features=VizDisplayCompositor'
+    ],
     proxy: proxy
       ? {
           server: proxy.split('@').pop(),
@@ -239,7 +254,8 @@ async function runSession(sessionId, headless) {
     viewport: { width: 360, height: 740 },
     isMobile: true,
     hasTouch: true,
-    userAgent: 'Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+    reducedMotion: 'reduce',
+    userAgent: 'Mozilla/5.0 (Linux; Android 12; SM-S906N Build/QP1A.190711.020; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.144 Mobile Safari/537.36'
   };
 
   if (proxy) {
@@ -253,35 +269,56 @@ async function runSession(sessionId, headless) {
 
   const page = await context.newPage();
 
+  // Stealth mode: remove automation fingerprints
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    delete navigator.__proto__.webdriver;
+  });
+
+  // Disable animations for low data
+  await page.addStyleTag({ content: '* { animation: none !important; transition: none !important; }' });
+
   // Block ads, images, tracking, videos, fonts to prevent data usage
-  await page.route('**/*', (route) => {
+  await context.route('**/*', (route) => {
     const resourceType = route.request().resourceType();
     const url = route.request().url().toLowerCase();
 
-    // Block images
-    if (resourceType === 'image') {
+    // Block resource types
+    const blockedTypes = ['image', 'media', 'font', 'websocket', 'ping', 'prefetch'];
+    if (blockedTypes.includes(resourceType)) {
       route.abort();
       return;
     }
 
-    // Block videos/media
-    if (resourceType === 'media') {
+    // Block specific domains
+    const blockedDomains = [
+      'doubleclick.net',
+      'googlesyndication.com',
+      'google-analytics.com',
+      'googletagmanager.com',
+      'googleadservices.com',
+      'adsystem.com',
+      'facebook.net',
+      'connect.facebook.net',
+      'pixel.facebook.com',
+      '2mdn.net',
+      'taboola.com',
+      'outbrain.com',
+      'criteo.com',
+      'hotjar.com',
+      'clarity.ms',
+      'youtube.com',
+      'googlevideo.com',
+      'gstatic.com'
+    ];
+    if (blockedDomains.some(domain => url.includes(domain))) {
       route.abort();
       return;
     }
 
-    // Block fonts
-    if (resourceType === 'font') {
-      route.abort();
-      return;
-    }
-
-    // Block ads and tracking
-    if (url.includes('ads') || url.includes('tracking') || url.includes('analytics') ||
-        url.includes('doubleclick') || url.includes('googlesyndication') ||
-        url.includes('facebook.com/tr') || url.includes('googletagmanager') ||
-        url.includes('google-analytics') || url.includes('hotjar') ||
-        url.includes('mixpanel') || url.includes('segment')) {
+    // Allow only necessary resource types
+    const allowedTypes = ['document', 'xhr', 'fetch', 'script'];
+    if (!allowedTypes.includes(resourceType)) {
       route.abort();
       return;
     }
