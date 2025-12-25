@@ -285,8 +285,8 @@ async function runSession() {
 
         // FINAL EXIT
         if (url.includes('webdb.store')) {
-          log('webdb.store reached');
-          await safeClick(activePage, 'a[id="get-link"]', 'Get Final Link');
+          log('webdb.store reached. Short link obtained: ' + url);
+          fs.appendFileSync('short_links.txt', url + '\n');
           await sleep(WAIT_AFTER_WEBDB);
           break;
         }
