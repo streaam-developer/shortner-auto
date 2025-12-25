@@ -1,5 +1,6 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
+const { isMainThread, Worker, workerData } = require('worker_threads');
 const buttonSelectors = require('./selectors');
 
 const HOME_URL = 'https://yomovies.delivery';
@@ -24,21 +25,19 @@ function getRandomProxy() {
 
 // ================= GLOBAL =================
 let RUNNING = true;
-let SESSION_COUNT = 0;
+// SESSION_COUNT is no longer a global variable.
 
 // ================= UTIL =================
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 function log(msg) {
-  const line = `[${new Date().toISOString()}] ${msg}`;
+  const prefix = isMainThread ? '[Main]' : `[Worker ${workerData.sessionId}]`;
+  const line = `[${new Date().toISOString()}] ${prefix} ${msg}`;
   console.log(line);
   fs.appendFileSync('automation.log', line + '\n');
 }
-process.on('SIGINT', () => {
-  console.log('\n🛑 Graceful shutdown requested...');
-  RUNNING = false;
-});
+// SIGINT handling is moved to the main thread runner section.
 
 // ================= HUMAN BEHAVIOR =================
 async function randomMouseMove(page) {
@@ -213,7 +212,7 @@ async function pickRandomPost(page) {
 }
 
 // ================= SESSION =================
-async function runSession() {
+async function runSession(sessionId) {
   const proxy = getRandomProxy();
 
   const browser = await chromium.launch({
@@ -228,7 +227,7 @@ async function runSession() {
         }
       : undefined
   });
-  if (proxy) log(`Using proxy: ${proxy}`);
+  if (proxy) log(`Using proxy: ${proxy.split('@')[1]}`);
 
   let contextOptions = {
     viewport: { width: 360, height: 740 },
@@ -249,8 +248,12 @@ async function runSession() {
   const page = await context.newPage();
 
   try {
-    SESSION_COUNT++;
-    log(`▶ SESSION ${SESSION_COUNT} START`);
+    log(`▶ SESSION ${sessionId} START`);
+
+    // Set referrer
+    const referrers = ['https://www.google.com', 'https://www.bing.com'];
+    const referrer = referrers[Math.floor(Math.random() * referrers.length)];
+    await page.setExtraHTTPHeaders({ 'Referer': referrer });
 
     // Home
     await page.goto(HOME_URL, { waitUntil: 'domcontentloaded' });
@@ -390,15 +393,67 @@ async function runSession() {
   } finally {
     await context.close();
     await browser.close();
-    log(`⏹ SESSION ${SESSION_COUNT} CLOSED`);
+    log(`⏹ SESSION ${sessionId} CLOSED`);
   }
 }
 
 // ================= RUNNER =================
-(async () => {
-  log('🚀 Automation started (arolinks dZJjx fixed)');
-  while (RUNNING) {
-    await runSession();
+if (isMainThread) {
+  const NUM_SESSIONS = 3;
+  log(`🚀 Automation started. Launching ${NUM_SESSIONS} parallel sessions.`);
+
+  const workers = new Map();
+
+  function launchWorker(sessionId) {
+    log(`Spawning worker for session ${sessionId}...`);
+    const worker = new Worker(__filename, { workerData: { sessionId } });
+
+    worker.on('error', (err) => {
+      log(`❌ Worker for session ${sessionId} had an error: ${err.message}`);
+    });
+
+    worker.on('exit', (code) => {
+      workers.delete(sessionId);
+      if (RUNNING) {
+        log(`⏹ Worker for session ${sessionId} exited with code ${code}. Relaunching in 5s...`);
+        setTimeout(() => launchWorker(sessionId), 5000);
+      } else {
+        log(`⏹ Worker for session ${sessionId} exited with code ${code}. Shutdown in progress.`);
+      }
+    });
+    workers.set(sessionId, worker);
   }
-  log('🛑 Automation stopped cleanly');
-})();
+
+  for (let i = 1; i <= NUM_SESSIONS; i++) {
+    launchWorker(i);
+  }
+
+  process.on('SIGINT', async () => {
+    if (!RUNNING) return;
+    console.log('\n🛑 Graceful shutdown requested...');
+    RUNNING = false;
+    log('Stopping all workers...');
+
+    const terminatePromises = [];
+    for (const worker of workers.values()) {
+      terminatePromises.push(worker.terminate());
+    }
+    
+    await Promise.all(terminatePromises).catch(err => console.error('Error during termination:', err));
+
+    log('All workers have been signaled to terminate.');
+    // Allow time for exit handlers to log messages
+    setTimeout(() => process.exit(0), 1000);
+  });
+} else {
+  // Worker thread
+  const { sessionId } = workerData;
+  runSession(sessionId)
+    .catch(err => {
+      log(`❌ Unhandled error in session: ${err.message}\n${err.stack}`);
+      process.exit(1);
+    })
+    .finally(() => {
+      process.exit(0);
+    });
+}
