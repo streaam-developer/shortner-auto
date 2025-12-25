@@ -50,7 +50,7 @@ const CLICK_SELECTORS = [
   { label: 'Force Continue', selector: 'button#cross-snp2.ce-btn.ce-blue' },
   { label: 'Continue btn6 color-9', selector: 'button#btn6.btn-hover.color-9:has-text("Continue")' },
   { label: 'Continue Next', selector: 'button#btn6.btn-hover.color-11:has-text("Continue Next")' },
-  { label: 'Verify Link onclick', selector: 'button[onclick="scrol()":has-text("Verify Link")', force: true },
+  { label: 'Verify Link onclick', selector: 'button[onclick="scrol()"]:has-text("Verify Link")', force: true },
   { label: 'Go Next', selector: 'button:has-text("Go Next")' },
   { label: 'Get Link btn6 color-11', selector: 'button#btn6.btn-hover.color-11:has-text("Get Link")', force: false },
 ];
@@ -190,10 +190,41 @@ async function runSession() {
     if (!dwdButtons.length) throw new Error('No dwd-button found');
     const dwd = dwdButtons[Math.floor(Math.random() * dwdButtons.length)];
     
-    const [newTab] = await Promise.all([
-      context.waitForEvent('page'),
-      dwd.click()
-    ]);
+    log('Found DWD button. Attempting a more human-like click...');
+    await dwd.scrollIntoViewIfNeeded();
+    await randomMouseMove(page);
+
+    // Forcibly enable the button, as some sites use disabled attribute
+    await dwd.evaluate(b => {
+        b.disabled = false;
+        b.removeAttribute('disabled');
+        b.style.pointerEvents = 'auto';
+    });
+    await sleep(200); // Brief pause
+
+    let newTab = null;
+
+    // Try to click and get the new tab
+    try {
+        const [tab] = await Promise.all([
+            context.waitForEvent('page', { timeout: 7000 }),
+            dwd.click({ delay: 100 + Math.random() * 100 }) // add a small random delay
+        ]);
+        newTab = tab;
+    } catch(e) {
+        log(`Standard DWD click failed: ${e.message}. Trying evaluate click...`);
+        // If standard click fails or times out, try the evaluate method
+        const [tab] = await Promise.all([
+            context.waitForEvent('page', { timeout: 7000 }),
+            dwd.evaluate(n => n.click())
+        ]);
+        newTab = tab;
+    }
+
+    if (!newTab) {
+        throw new Error('DWD click did not result in a new tab.');
+    }
+
     await newTab.waitForLoadState('domcontentloaded');
     log('DWD clicked → new tab');
     if (!page.isClosed()) await page.close();
