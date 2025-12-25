@@ -1,13 +1,5 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
-const {
-    sleep,
-    log,
-    getRandomReferrer,
-    randomMouseMove,
-    randomScroll,
-    safeClick,
-} = require('./utils.js');
 
 const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
@@ -34,10 +26,44 @@ let RUNNING = true;
 let SESSION_COUNT = 0;
 
 // ================= UTIL =================
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+function log(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}`;
+  console.log(line);
+  fs.appendFileSync('automation.log', line + '\n');
+}
+
 process.on('SIGINT', () => {
   console.log('\n🛑 Graceful shutdown requested...');
   RUNNING = false;
 });
+
+// ================= HUMAN BEHAVIOR =================
+async function randomMouseMove(page) {
+    const viewport = page.viewportSize();
+    if (!viewport) return;
+    const { width, height } = viewport;
+    const moves = 3 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < moves; i++) {
+        await page.mouse.move(
+            Math.random() * width,
+            Math.random() * height, 
+            { steps: 5 + Math.floor(Math.random() * 10) }
+        );
+        await sleep(300 + Math.random() * 500);
+    }
+}
+
+async function randomScroll(page) {
+  const times = 1 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < times; i++) {
+    await page.evaluate(y => window.scrollBy(0, y), 200 + Math.random() * 400);
+    await sleep(500 + Math.random() * 800);
+  }
+}
 
 // ================= CLICK LOGIC =================
 
@@ -50,10 +76,75 @@ const CLICK_SELECTORS = [
   { label: 'Force Continue', selector: 'button#cross-snp2.ce-btn.ce-blue' },
   { label: 'Continue btn6 color-9', selector: 'button#btn6.btn-hover.color-9:has-text("Continue")' },
   { label: 'Continue Next', selector: 'button#btn6.btn-hover.color-11:has-text("Continue Next")' },
-  { label: 'Verify Link onclick', selector: 'button[onclick="scrol()"]:has-text("Verify Link")', force: true },
+  { label: 'Verify Link onclick', selector: 'button[onclick="scrol()":has-text("Verify Link")', force: true },
   { label: 'Go Next', selector: 'button:has-text("Go Next")' },
   { label: 'Get Link btn6 color-11', selector: 'button#btn6.btn-hover.color-11:has-text("Get Link")', force: false },
+  { label: 'Get Final Link', selector: 'a[id="get-link"]', webdbOnly: true },
 ];
+
+async function safeClick(page, selector, label, force = false) {
+  try {
+    const el = page.locator(selector).first();
+    await el.waitFor({ timeout: 250 }).catch(() => {});
+    if (!(await el.isVisible())) {
+      return false; // Element not there, just return. Main loop will retry.
+    }
+
+    log(`🚀 Found element: "${label}". Attempting to click...`);
+    
+    // Clear overlays and enable button
+    await page.evaluate(() => {
+      document.querySelectorAll('iframe, .modal, .popup, .overlay, .dialog, [class*="modal"], [class*="popup"], [class*="overlay"], [class*="dialog"]').forEach(e => {
+        e.style.display = 'none';
+        e.style.pointerEvents = 'none';
+      });
+    });
+
+    const buttonEl = selector.startsWith('a:') ? el.locator('button').first() : el;
+    await buttonEl.evaluate(b => {
+      b.disabled = false;
+      b.removeAttribute('disabled');
+      b.removeAttribute('aria-disabled');
+      b.style.pointerEvents = 'auto';
+      b.style.display = 'block';
+      b.classList.remove('disabled');
+    });
+
+    log(`... Button for "${label}" forcibly enabled, waiting 0.5s for JS.`);
+    await sleep(500);
+    await el.scrollIntoViewIfNeeded();
+
+    // Try multiple click methods
+    const clickMethods = [
+      { name: 'DOM evaluate', method: () => el.evaluate(n => n.click()) },
+      { name: 'Playwright force', method: () => el.click({ force: true, timeout: 2000 }) },
+      { name: 'Playwright race', method: () => Promise.race([ el.click({ timeout: 2000 }), page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3000 }) ]) },
+      { name: 'Dispatch event', method: () => el.dispatchEvent('click') },
+    ];
+
+    for (const { name, method } of clickMethods) {
+      try {
+        await method();
+        log(`✓ Clicked "${label}" using: ${name}`);
+        await sleep(1500); // Wait for navigation
+        return true;
+      } catch (e) {
+        // Log quietly as this is an expected failure during the try-catch loop
+      }
+    }
+
+    log(`❌ All click methods failed for "${label}".`);
+    return false;
+
+  } catch (err) {
+    if (err.message.includes('Execution context was destroyed')) {
+      log(`"${label}" click caused navigation (safe).`);
+      return true; // Navigation is a success
+    }
+    log(`🚨 Error in safeClick for "${label}": ${err.message.split('\n')[0]}`);
+    return false;
+  }
+}
 
 // ================= POST PICKER =================
 async function pickRandomPost(page) {
@@ -72,20 +163,14 @@ async function handleClicks(page, context) {
             const url = activePage.url();
             log(`Current URL: ${url}`);
             
-            if (url.includes('webdb.store')) {
-                log('webdb.store page reached. Short link obtained: ' + url);
-                fs.appendFileSync('short_links.txt', url + '\n');
-                await sleep(WAIT_AFTER_WEBDB);
-                return; // Exit handleClicks, which will lead to session close.
-            }
-
             await randomMouseMove(activePage);
 
             let clickedSomething = false;
             for (const config of CLICK_SELECTORS) {
                 const isArolinks = url.includes('arolinks.com');
-                
-                if (config.arolinksOnly && !isArolinks) {
+                const isWebdb = url.includes('webdb.store');
+
+                if ((config.arolinksOnly && !isArolinks) || (config.webdbOnly && !isWebdb)) {
                     continue;
                 }
                 
@@ -110,6 +195,11 @@ async function handleClicks(page, context) {
 
                 if (success) {
                     clickedSomething = true;
+                    if (config.webdbOnly) {
+                        log('Final link page reached. Waiting before exit.');
+                        await sleep(WAIT_AFTER_WEBDB);
+                        return; // Exit loop
+                    }
                     break; 
                 }
             }
@@ -157,26 +247,14 @@ async function runSession() {
     permissions: proxy ? ['geolocation'] : [],
   });
   
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', {
-      get: () => false,
-    });
-  });
-  log('Stealth: navigator.webdriver set to false.');
-  
   const page = await context.newPage();
 
   try {
     SESSION_COUNT++;
     log(`▶ SESSION ${SESSION_COUNT} START`);
 
-    const referrer = getRandomReferrer();
-    await page.setExtraHTTPHeaders({ 'Referer': referrer });
-
     await page.goto(HOME_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    
-    await page.setExtraHTTPHeaders({}); // Reset headers
-    log(`Home opened (referrer: ${referrer})`);
+    log('Home opened');
     await randomScroll(page);
 
     const post = await pickRandomPost(page);
@@ -190,41 +268,10 @@ async function runSession() {
     if (!dwdButtons.length) throw new Error('No dwd-button found');
     const dwd = dwdButtons[Math.floor(Math.random() * dwdButtons.length)];
     
-    log('Found DWD button. Attempting a more human-like click...');
-    await dwd.scrollIntoViewIfNeeded();
-    await randomMouseMove(page);
-
-    // Forcibly enable the button, as some sites use disabled attribute
-    await dwd.evaluate(b => {
-        b.disabled = false;
-        b.removeAttribute('disabled');
-        b.style.pointerEvents = 'auto';
-    });
-    await sleep(200); // Brief pause
-
-    let newTab = null;
-
-    // Try to click and get the new tab
-    try {
-        const [tab] = await Promise.all([
-            context.waitForEvent('page', { timeout: 7000 }),
-            dwd.click({ delay: 100 + Math.random() * 100 }) // add a small random delay
-        ]);
-        newTab = tab;
-    } catch(e) {
-        log(`Standard DWD click failed: ${e.message}. Trying evaluate click...`);
-        // If standard click fails or times out, try the evaluate method
-        const [tab] = await Promise.all([
-            context.waitForEvent('page', { timeout: 7000 }),
-            dwd.evaluate(n => n.click())
-        ]);
-        newTab = tab;
-    }
-
-    if (!newTab) {
-        throw new Error('DWD click did not result in a new tab.');
-    }
-
+    const [newTab] = await Promise.all([
+      context.waitForEvent('page'),
+      dwd.click()
+    ]);
     await newTab.waitForLoadState('domcontentloaded');
     log('DWD clicked → new tab');
     if (!page.isClosed()) await page.close();
