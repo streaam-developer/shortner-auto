@@ -9,6 +9,7 @@ const POLL_INTERVAL = 500;
 
 // Headless mode: default false, enable with --headless flag
 const headless = process.argv.includes('--headless');
+log(`Headless mode: ${headless}`);
 
 // ================= PROXY CONFIG =================
 const PROXY_ENABLED = true; // true to enable
@@ -409,7 +410,7 @@ if (isMainThread) {
 
   function launchWorker(sessionId) {
     log(`Spawning worker for session ${sessionId}...`);
-    const worker = new Worker(__filename, { workerData: { sessionId } });
+    const worker = new Worker(__filename, { workerData: { sessionId, headless } });
 
     worker.on('error', (err) => {
       log(`❌ Worker for session ${sessionId} had an error: ${err.message}`);
@@ -450,7 +451,7 @@ if (isMainThread) {
   });
 } else {
   // Worker thread
-  const { sessionId } = workerData;
+  const { sessionId, headless } = workerData;
   runSession(sessionId)
     .catch(err => {
       log(`❌ Unhandled error in session: ${err.message}\n${err.stack}`);
