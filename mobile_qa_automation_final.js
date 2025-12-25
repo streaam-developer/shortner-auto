@@ -18,6 +18,11 @@ const PROXIES = fs.readFileSync('proxy.txt', 'utf8')
     return `http://${user}:${pass}@${ip}:${port}`;
   });
 
+// Extract unique IPs from proxies
+const ALL_IPS = [...new Set(PROXIES.map(p => p.split('@')[1].split(':')[0]))];
+fs.writeFileSync('all_ips.txt', ALL_IPS.join('\n'));
+log(`Extracted ${ALL_IPS.length} unique IPs from proxies.`);
+
 // ================= GLOBAL =================
 let RUNNING = true;
 // SESSION_COUNT is no longer a global variable.
@@ -54,36 +59,38 @@ function writeProxyData(filePath, data) {
     }
 }
 
-function addSuccessfulProxy(proxy) {
-    if (!proxy) return;
-    const filePath = 'successful_proxies.json';
-    const successfulProxies = readProxyData(filePath);
-    if (!successfulProxies.includes(proxy)) {
-        successfulProxies.push(proxy);
-        writeProxyData(filePath, successfulProxies);
-        log(`Added proxy to successful list: ${proxy.split('@')[1]}`);
+function addSuccessfulIP(ip) {
+    if (!ip) return;
+    const filePath = 'successful_ips.json';
+    const successfulIPs = readProxyData(filePath);
+    if (!successfulIPs.includes(ip)) {
+        successfulIPs.push(ip);
+        writeProxyData(filePath, successfulIPs);
+        fs.appendFileSync('successful_ips.txt', ip + '\n');
+        log(`Added IP to successful list: ${ip}`);
     }
 }
 
-function recordProxyUsage(proxy) {
-    if (!proxy) return;
-    const filePath = 'used_proxies.json';
+function recordIPUsage(ip) {
+    if (!ip) return;
+    const filePath = 'used_ips.json';
     const usageData = readProxyData(filePath);
-    usageData[proxy] = new Date().getTime();
+    usageData[ip] = new Date().getTime();
     writeProxyData(filePath, usageData);
-    log(`Recorded usage for proxy: ${proxy.split('@')[1]}`);
+    log(`Recorded usage for IP: ${ip}`);
 }
 // --- END PROXY MANAGEMENT FUNCTIONS ---
 
 function getRandomProxy() {
     if (!PROXY_ENABLED || !PROXIES.length) return null;
 
-    const usageData = readProxyData('used_proxies.json');
+    const usageData = readProxyData('used_ips.json');
     const now = new Date().getTime();
     const thirtyHoursInMillis = 30 * 60 * 60 * 1000;
 
     const availableProxies = PROXIES.filter(p => {
-        const lastUsed = usageData[p];
+        const ip = p.split('@')[1].split(':')[0];
+        const lastUsed = usageData[ip];
         if (!lastUsed) {
             return true; // Never used
         }
@@ -91,7 +98,7 @@ function getRandomProxy() {
         const isAvailable = timeSinceLastUse > thirtyHoursInMillis;
         if (!isAvailable) {
             // This can be spammy, so commented out.
-            // log(`Proxy ${p.split('@')[1]} was used within the last 30 hours. Skipping.`);
+            // log(`IP ${ip} was used within the last 30 hours. Skipping.`);
         }
         return isAvailable;
     });
@@ -289,10 +296,8 @@ async function runSession(sessionId) {
     await sleep(5 * 60 * 1000);
     return;
   }
-  
-  if (proxy) {
-    recordProxyUsage(proxy);
-  }
+
+  const ip = proxy ? proxy.split('@')[1].split(':')[0] : null;
 
   const browser = await chromium.launch({
     headless: false,
@@ -306,7 +311,7 @@ async function runSession(sessionId) {
         }
       : undefined
   });
-  if (proxy) log(`Using proxy: ${proxy.split('@')[1]}`);
+  if (proxy) log(`Using proxy IP: ${ip}`);
 
   let contextOptions = {
     viewport: { width: 360, height: 740 },
@@ -369,7 +374,8 @@ async function runSession(sessionId) {
         if (url.includes('webdb.store')) {
           log('webdb.store reached. Short link obtained: ' + url);
           fs.appendFileSync('short_links.txt', url + '\n');
-          addSuccessfulProxy(proxy);
+          addSuccessfulIP(ip);
+          recordIPUsage(ip); // Record usage only on success
           await sleep(WAIT_AFTER_WEBDB);
           break;
         }
