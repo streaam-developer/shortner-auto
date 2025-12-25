@@ -48,13 +48,6 @@ async function safeClick(page, selector, label, force = false) {
 
     log(`🚀 Found element: "${label}". Attempting to click...`);
     
-    await page.evaluate(() => {
-      document.querySelectorAll('iframe, .modal, .popup, .overlay, .dialog, [class*="modal"], [class*="popup"], [class*="overlay"], [class*="dialog"]').forEach(e => {
-        e.style.display = 'none';
-        e.style.pointerEvents = 'none';
-      });
-    });
-
     const buttonEl = selector.startsWith('a:') ? el.locator('button').first() : el;
     await buttonEl.evaluate(b => {
       b.disabled = false;
