@@ -7,6 +7,14 @@ const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
 const POLL_INTERVAL = 500;
 
+// Domains where blocking should not apply (allow all requests)
+const ALLOWED_DOMAINS = [
+  'yomovies.delivery',
+  'webdb.store',
+  'arolinks.com',
+  'linkpays.in'
+];
+
 // Headless mode: default false, enable with --headless flag
 const headless = process.argv.includes('--headless');
 log(`Headless mode: ${headless}`);
@@ -266,6 +274,75 @@ async function runSession(sessionId, headless) {
   const context = await browser.newContext(contextOptions);
 
   const page = await context.newPage();
+
+  // Stealth mode: remove automation fingerprints
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    delete navigator.__proto__.webdriver;
+  });
+
+  // Disable animations for low data
+  await page.addStyleTag({ content: '* { animation: none !important; transition: none !important; }' });
+
+  // Block ads, images, tracking, videos, fonts to prevent data usage
+  await context.route('**/*', (route) => {
+    const resourceType = route.request().resourceType();
+    const url = route.request().url().toLowerCase();
+    const hostname = new URL(url).hostname;
+
+    // Allow scripts on all domains
+    if (resourceType === 'script') {
+      route.continue();
+      return;
+    }
+
+    // Allow all requests on specified domains and their subdomains
+    if (ALLOWED_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain))) {
+      route.continue();
+      return;
+    }
+
+    // Block resource types
+    const blockedTypes = ['image', 'media', 'font', 'websocket', 'ping', 'prefetch'];
+    if (blockedTypes.includes(resourceType)) {
+      route.abort();
+    }
+
+    // Block specific domains
+    const blockedDomains = [
+      'doubleclick.net',
+      'googlesyndication.com',
+      'google-analytics.com',
+      'googletagmanager.com',
+      'googleadservices.com',
+      'adsystem.com',
+      'facebook.net',
+      'connect.facebook.net',
+      'pixel.facebook.com',
+      '2mdn.net',
+      'taboola.com',
+      'outbrain.com',
+      'criteo.com',
+      'hotjar.com',
+      'clarity.ms',
+      'youtube.com',
+      'googlevideo.com',
+      'gstatic.com'
+    ];
+    if (blockedDomains.some(domain => hostname.includes(domain))) {
+      route.abort();
+      return;
+    }
+
+    // Allow only necessary resource types
+    const allowedTypes = ['document', 'xhr', 'fetch'];
+    if (!allowedTypes.includes(resourceType)) {
+      route.abort();
+      return;
+    }
+
+    route.continue();
+  });
 
   try {
     log(`▶ SESSION ${sessionId} START`);
