@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
 const axios = require('axios');
 const fs = require('fs');
+const buttonSelectors = require('./selectors');
 
 const HOME_URL = 'https://yomovies.delivery';
 const WAIT_AFTER_WEBDB = 5000;
@@ -208,9 +209,10 @@ async function runSession() {
       }
 
       if (activePage.url().includes('arolinks.com')) {
+        const selectors = buttonSelectors.map(s => s.selector);
         const r = await findAndClickButton(
           activePage,
-          ['#btn6', '#btn7', '#get-link', 'button:has-text("Verify")'],
+          selectors,
           { expectNewPage: true }
         );
         activePage = r.page;

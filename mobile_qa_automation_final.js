@@ -215,6 +215,20 @@ async function pickRandomPost(page) {
   return posts[Math.floor(Math.random() * posts.length)];
 }
 
+// ================= CHECK ALL BUTTONS =================
+async function checkAndClickButtons(page, url) {
+  for (const btn of buttonSelectors) {
+    let useForce = btn.force;
+    if (btn.force === 'conditional_not_arolinks') {
+      useForce = !url.includes('arolinks.com');
+    }
+    if (await safeClick(page, btn.selector, btn.label, useForce)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ================= SESSION =================
 async function runSession(sessionId, headless) {
   const proxy = getRandomProxy();
@@ -334,49 +348,8 @@ async function runSession(sessionId, headless) {
           }
         }
 
-        // Verify
-        if (await safeClick(
-          activePage,
-          'button.ce-btn.ce-blue:has-text("Verify")',
-          'Verify',
-          !url.includes('arolinks.com')
-        )) {
-          await sleep(POLL_INTERVAL);
-          continue;
-        }
-
-        // Continue (normal)
-        if (await safeClick(
-          activePage,
-          'button:has-text("Continue")',
-          'Continue',
-          !url.includes('arolinks.com')
-        )) {
-          await sleep(POLL_INTERVAL);
-          continue;
-        }
-
-        // Continue (force)
-        if (await safeClick(
-          activePage,
-          'button#cross-snp2.ce-btn.ce-blue',
-          'Force Continue',
-          !url.includes('arolinks.com')
-        )) {
-          await sleep(POLL_INTERVAL);
-          continue;
-        }
-
-        // New buttons parallel
-        const newSelectors = [
-          { selector: 'button#btn6.btn-hover.color-9:has-text("Continue")', label: 'Continue btn6 color-9', force: !url.includes('arolinks.com') },
-          { selector: 'button#btn6.btn-hover.color-11:has-text("Continue Next")', label: 'Continue Next', force: !url.includes('arolinks.com') },
-          { selector: 'button[onclick="scrol()"]:has-text("Verify Link")', label: 'Verify Link onclick', force: true },
-          { selector: 'button:has-text("Go Next")', label: 'Go Next', force: !url.includes('arolinks.com') },
-          { selector: 'button#btn6.btn-hover.color-11:has-text("Get Link")', label: 'Get Link btn6 color-11', force: false }
-        ];
-        const results = await Promise.allSettled(newSelectors.map(({selector, label, force}) => safeClick(activePage, selector, label, force)));
-        if (results.some(r => r.status === 'fulfilled' && r.value)) {
+        // Check all button selectors
+        if (await checkAndClickButtons(activePage, url)) {
           await sleep(POLL_INTERVAL);
           continue;
         }

@@ -8,11 +8,11 @@ const buttonSelectors = [
   { selector: 'button[onclick="scrol()"]:has-text("Verify Link")', label: 'Verify Link onclick', force: true },
   { selector: 'button:has-text("Go Next")', label: 'Go Next', force: 'conditional_not_arolinks' },
   { selector: 'button#btn6.btn-hover.color-11:has-text("Get Link")', label: 'Get Link btn6 color-11', force: false },
-  // New GPLinks selectors
+  // GPLinks selectors
   { selector: 'button#VerifyBtn.VerifyBtn:has-text("VERIFY")', label: 'Verify GPLinks', force: false },
   { selector: 'a#NextBtn.NextBtn.exclude-pop:has-text("CONTINUE")', label: 'Continue GPLinks', force: false },
   { selector: 'a#captchaButton.btn.btn-primary.rounded.get-link.xclude-popad:has-text("Get Link")', label: 'Get Link GPLinks', force: false },
-  // New Adrinolinks selectors
+  // Adrinolinks selectors
   { selector: 'button#nextbtn.tp-btn-2.tp-blue.countdown[onclick*="nextscroll()"]:has-text("Continue")', label: 'Continue Adrino', force: false },
   { selector: 'button#tp-snp2.tp-btn-2.tp-blue:has-text("Click here to proceed")', label: 'Click here to proceed Adrino', force: false },
 ];
