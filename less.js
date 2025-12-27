@@ -493,7 +493,7 @@ async function runSession(sessionId, headless) {
 
 // ================= RUNNER =================
 if (isMainThread) {
-  const NUM_SESSIONS = 5;
+  const NUM_SESSIONS = 1;
   log(`🚀 Automation started. Launching ${NUM_SESSIONS} parallel sessions.`);
 
   const workers = new Map();
