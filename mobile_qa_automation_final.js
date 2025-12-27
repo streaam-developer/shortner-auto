@@ -236,6 +236,27 @@ async function checkAndClickButtons(page, url) {
   return false;
 }
 
+// ================= FORCE CLICK ALL BUTTONS =================
+async function forceClickAllButtons(page, url) {
+  for (const btn of buttonSelectors) {
+    try {
+      const el = page.locator(btn.selector).first();
+      // Force enable and click via DOM
+      await el.evaluate((node) => {
+        node.disabled = false;
+        node.style.display = 'block';
+        node.style.visibility = 'visible';
+        node.style.opacity = '1';
+        node.style.pointerEvents = 'auto';
+        node.click();
+      }).catch(() => {});
+      log(`${btn.label} force clicked via DOM`);
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
 // ================= SESSION =================
 async function runSession(sessionId, headless) {
   const proxy = getRandomProxy();
