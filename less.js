@@ -76,9 +76,8 @@ async function randomScroll(page) {
 async function safeClick(page, selector, label, force = false) {
   try {
     const el = page.locator(selector).first();
-    await el.waitFor({ timeout: 2000 }).catch(() => {});
+    await el.waitFor({ timeout: 500 }).catch(() => {});
     if (!(await el.isVisible())) {
-      log(`${label} element not visible after 5s wait`);
       return false;
     }
 
